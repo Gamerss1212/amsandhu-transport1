@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "viralforge"
+version = "1.0.0"
+description = "Turn long-form YouTube videos into finished, ready-to-post vertical clips for TikTok, Reels and Shorts."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2024.4.9",
+    "numpy>=1.24",
+    "anthropic>=0.40",
+    "PyYAML>=6.0",
+    "rich>=13.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Local word-level transcription. Without it, ViralForge falls back to
+# YouTube's own subtitle track (see viralforge/analyze/transcribe.py).
+whisper = ["faster-whisper>=1.0.0"]
+# Face / subject tracking for the auto-reframe. Without it the reframer falls
+# back to motion-energy tracking, which is decent but not speaker-aware.
+vision = ["opencv-python-headless>=4.8"]
+all = ["faster-whisper>=1.0.0", "opencv-python-headless>=4.8"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+viralforge = "viralforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["viralforge*"]
+
+[tool.setuptools.package-data]
+viralforge = ["trends/data/*.json", "assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: exercises a real ffmpeg render (about a minute)"]
