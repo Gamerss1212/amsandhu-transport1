@@ -1,0 +1,48 @@
+# Copy to viralforge.yaml and edit. Every key is optional - these are the
+# defaults. `viralforge init` writes this file for you.
+# Environment overrides: VF_<SECTION>_<KEY>, e.g. VF_RENDER_FPS=60
+
+output:
+  directory: out
+  clips: 5
+
+trends:
+  provider: local              # local | file | apify
+  niche: "business podcast"    # free text - steers scoring and hashtags
+  platforms: [tiktok, instagram]
+  # Ground the profile in real numbers instead of the shipped baseline:
+  # provider: file
+  # samples_path: my-tiktok-export.csv
+  # profile_path: trends.json  # cache the derived profile here
+
+scoring:
+  model: claude-opus-5
+  effort: high
+  heuristic_weight: 0.3        # 0 = trust the model, 1 = measurements only
+
+captions:
+  style: impact                # impact | clean | bold_box | karaoke
+  font: "DejaVu Sans"          # any font fontconfig can find
+  highlight_color: FFE100
+
+reframe:
+  mode: auto                   # auto | face | center | motion | none
+  smoothing: 0.12              # lower = calmer camera
+  punch_in: true
+
+audio:
+  loudness_target: -14.0
+  de_silence: true
+  # music_path: assets/bed.mp3
+  # music_gain_db: -22.0
+
+render:
+  fps: 30
+  crf: 19
+  preset: slow
+  # watermark_text: "@yourhandle"
+
+copy:
+  variants: 3
+  hashtags_per_post: 6
+  voice: ""                    # e.g. "blunt, lowercase, no emojis"

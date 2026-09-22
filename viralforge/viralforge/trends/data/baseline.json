@@ -1,0 +1,114 @@
+{
+  "version": "2026.02",
+  "note": "Platform-agnostic short-form baseline. Neither TikTok nor Instagram publishes a 'what is viral' API, so this is a documented starting point, not measured data. Ground it in real numbers with `viralforge trends analyze` (provider: file or apify).",
+  "general": {
+    "duration_bands": [
+      {"low": 21, "high": 34, "label": "single-idea clip"},
+      {"low": 38, "high": 58, "label": "story / demonstration"}
+    ],
+    "hook_window": 3.0,
+    "cuts_per_minute": {"low": 16, "high": 42, "label": "cuts/min"},
+    "words_per_minute": {"low": 155, "high": 215, "label": "wpm"},
+    "caption_chars": {"low": 40, "high": 140, "label": "chars"},
+    "hashtag_count": {"low": 3, "high": 6, "label": "tags"},
+    "hook_patterns": [
+      "A flat contradiction of something the viewer believes: 'X is the worst advice in Y.'",
+      "A number with a stake attached: 'I lost $40,000 learning this.'",
+      "Name the viewer's exact situation in the first four words: 'If you're 25 and broke...'",
+      "Open mid-argument, no preamble - the first word is already the point",
+      "A question the viewer cannot answer but wants to: 'Why does nobody talk about this?'",
+      "Promise a specific, checkable payoff: 'By the end of this you'll know exactly when to quit.'",
+      "Confess something slightly costly to admit - specificity beats drama",
+      "Name a villain: the industry, the algorithm, the received wisdom"
+    ],
+    "rubric": "A clip travels when it is a complete thought that needs zero context, lands its most interesting sentence in the first three seconds, and gives the viewer something to do with it afterwards - repeat it, argue with it, or send it to one specific person. Length follows content: cut the moment the point is made. Density matters more than duration; a 45-second clip with no dead air outperforms a padded 25-second one.",
+    "caption_guidance": "One line that adds to the video rather than describing it - a stake, a question, or the part you left out. Front-load the searchable words. No 'in this video I'. Emoji only where it carries meaning.",
+    "avoid": [
+      "Cold opens that start mid-sentence with an unresolved pronoun ('...and that's why he did it')",
+      "Windups: 'so basically what I was saying is'",
+      "Clips that only make sense if you heard the previous five minutes",
+      "Inside jokes, guest names, or references with no setup",
+      "A payoff that lands after the viewer has already left - anything past 3s of setup",
+      "Generic advice with no specific number, name, or consequence"
+    ]
+  },
+  "niches": {
+    "business": {
+      "duration_bands": [{"low": 24, "high": 42, "label": "one lesson"}, {"low": 45, "high": 70, "label": "case study"}],
+      "hook_patterns": [
+        "Lead with the money: a revenue number, a loss, a price",
+        "Contradict the standard advice by name: 'Stop building an MVP.'",
+        "Name the mistake before the fix"
+      ],
+      "hashtag_pool": ["business", "entrepreneur", "startup", "smallbusiness", "founder", "marketing", "sales", "moneytips"]
+    },
+    "fitness": {
+      "duration_bands": [{"low": 15, "high": 28, "label": "one cue"}, {"low": 30, "high": 48, "label": "form breakdown"}],
+      "hook_patterns": [
+        "Name the mistake the viewer is making right now",
+        "Before/after framing stated in the first sentence",
+        "'You don't need X' where X is what everyone sells"
+      ],
+      "hashtag_pool": ["fitness", "gym", "workout", "form", "strength", "fitnesstips", "training", "healthylifestyle"]
+    },
+    "podcast": {
+      "duration_bands": [{"low": 28, "high": 52, "label": "the exchange"}, {"low": 55, "high": 78, "label": "the story"}],
+      "hook_patterns": [
+        "Start on the guest's most unguarded sentence, not the host's question",
+        "Open on disagreement between the two voices",
+        "A confession, stated plainly"
+      ],
+      "hashtag_pool": ["podcast", "podcastclips", "interview", "mindset", "conversation", "storytime"]
+    },
+    "education": {
+      "duration_bands": [{"low": 20, "high": 38, "label": "one concept"}, {"low": 42, "high": 62, "label": "worked example"}],
+      "hook_patterns": [
+        "State the counter-intuitive result first, explain second",
+        "'Nobody teaches this' + the specific thing",
+        "Pose the exam-style question, then answer it"
+      ],
+      "hashtag_pool": ["learnontiktok", "education", "explained", "study", "facts", "didyouknow", "science"]
+    },
+    "gaming": {
+      "duration_bands": [{"low": 12, "high": 26, "label": "the moment"}, {"low": 28, "high": 45, "label": "the setup + payoff"}],
+      "hook_patterns": [
+        "Show the outcome first, then rewind",
+        "'This shouldn't be possible'",
+        "Name the stake: rank, streak, money"
+      ],
+      "hashtag_pool": ["gaming", "gamer", "clips", "gameplay", "highlights", "fyp"]
+    },
+    "comedy": {
+      "duration_bands": [{"low": 11, "high": 24, "label": "the bit"}, {"low": 26, "high": 40, "label": "the runner"}],
+      "hook_patterns": [
+        "Start one beat before the punchline, never at the setup",
+        "Visual or tonal incongruity in frame one",
+        "The straight line delivered completely deadpan"
+      ],
+      "hashtag_pool": ["comedy", "funny", "humor", "standup", "relatable", "lol"]
+    }
+  },
+  "platform_overrides": {
+    "tiktok": {
+      "caption_chars": {"low": 30, "high": 120, "label": "chars"},
+      "hashtag_count": {"low": 3, "high": 6, "label": "tags"},
+      "notes": [
+        "Captions are searchable - TikTok is used as a search engine, so the first words should be the query someone would type.",
+        "Keep the bottom ~18% and right ~14% of the frame clear of text: the UI sits there."
+      ]
+    },
+    "instagram": {
+      "caption_chars": {"low": 60, "high": 200, "label": "chars"},
+      "hashtag_count": {"low": 3, "high": 8, "label": "tags"},
+      "notes": [
+        "Reels favour rewatches and sends - a loopable ending is worth more than a sign-off.",
+        "Only the first ~125 characters show before 'more'."
+      ]
+    },
+    "youtube_shorts": {
+      "caption_chars": {"low": 30, "high": 100, "label": "chars"},
+      "hashtag_count": {"low": 2, "high": 4, "label": "tags"},
+      "notes": ["The title doubles as the hook - it is visible before playback in feeds."]
+    }
+  }
+}
