@@ -221,9 +221,10 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
         a_chain = "[withsfx]"
     if music_i is not None:
         g.append(f"{a_chain}asplit[sp1][sp2]")
-        g.append(f"[{music_i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.22,afade=t=in:d=1.0,"
-                 f"afade=t=out:st={max(0.0, duration - 1.5):.3f}:d=1.5[mus]")
-        g.append("[mus][sp2]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[duck]")
+        # any track is first brought to a background level, then dipped ~6 dB under speech (not muted)
+        g.append(f"[{music_i}:a]aformat=sample_rates=48000:channel_layouts=stereo,loudnorm=I=-27:TP=-8:LRA=7,"
+                 f"aresample=48000,afade=t=in:d=1.0,afade=t=out:st={max(0.0, duration - 1.5):.3f}:d=1.5[mus]")
+        g.append("[mus][sp2]sidechaincompress=threshold=0.08:ratio=4:attack=20:release=400[duck]")
         g.append("[sp1][duck]amix=inputs=2:duration=first:normalize=0[withmusic]")
         a_chain = "[withmusic]"
     audio_filters = ["loudnorm=I=-14:TP=-1.5:LRA=11"] if preset.loudnorm else []
