@@ -175,7 +175,8 @@ def test_clip_a_video_file(cfg, tmp_path, monkeypatch):
 
     assert len(clips) == 1
     listed = list_outputs(cfg.path("paths.output_dir"))
-    assert "My Podcast Ep 1" in listed[0]["caption"]
+    assert "Credit" not in listed[0]["caption"]  # your own file: no credit line
+    assert "#storytime" in listed[0]["caption"]
 
 
 def test_web_clip_endpoint(cfg):
