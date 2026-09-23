@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..media import extract_frame, probe, run_ffmpeg
+from .builtin_assets import builtin
 from .captions import build_ass
 from .fonts import size_scale
 from .safety import censor
@@ -136,6 +137,11 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     broll = _pick(asset("broll_dir"), VIDEO_EXT, job.name) if preset.broll_split else None
     music = _pick(asset("music_dir"), AUDIO_EXT, job.name) if preset.music else None
     sfx = _pick(asset("sfx_dir"), AUDIO_EXT, job.name) if preset.sfx else None
+    if e.get("builtin_assets", True):  # your own files win; otherwise the built-in ones keep every feature on
+        cache = cfg.path("paths.work_dir").parent / "builtin_assets"
+        broll = broll or (builtin("broll", cache) if preset.broll_split else None)
+        music = music or (builtin("music", cache) if preset.music else None)
+        sfx = sfx or (builtin("sfx", cache) if preset.sfx else None)
     idx = 1
     broll_i = music_i = sfx_i = None
     if broll:

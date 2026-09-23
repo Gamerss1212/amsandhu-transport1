@@ -102,6 +102,7 @@ editing:
   music_dir: assets/music        # royalty-free tracks (.mp3/.wav) for professional+
   sfx_dir: assets/sfx            # whoosh/pop sounds for professional+
   broll_dir: assets/broll        # satisfying/gameplay footage for extreme split-screen
+  builtin_assets: true           # built-in music, whoosh and b-roll when the folders below are empty
   censor_profanity: true         # star out explicit words on screen and in captions (f*ck) - platforms limit reach
   accent_color: "#FFE600"
   highlight_color: "#00FF88"

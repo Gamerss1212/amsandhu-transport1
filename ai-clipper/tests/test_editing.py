@@ -97,3 +97,15 @@ def test_censor_explicit_words_only():
     assert censor("I was sucking his cock") == "I was sucking his c*ck"
     assert censor("Dickens ordered a cocktail and shiitake") == "Dickens ordered a cocktail and shiitake"
     assert censor("") == ""
+
+
+def test_builtin_assets_are_generated_once(tmp_path):
+    from clipper.editing.builtin_assets import builtin, make_broll
+
+    music, sfx = builtin("music", tmp_path), builtin("sfx", tmp_path)
+    assert probe(music)["has_audio"] and probe(music)["duration"] > 30
+    assert probe(sfx)["has_audio"] and 0.4 < probe(sfx)["duration"] < 1.0
+    stamp = music.stat().st_mtime
+    assert builtin("music", tmp_path).stat().st_mtime == stamp  # cached, not regenerated
+    clip = make_broll(tmp_path / "b.mp4", seconds=2)
+    assert probe(clip)["width"] == 540 and abs(probe(clip)["duration"] - 2) < 0.2
