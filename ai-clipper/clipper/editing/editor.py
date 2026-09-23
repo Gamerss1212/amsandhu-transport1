@@ -8,6 +8,7 @@ Pass B: reframe to 9:16 following the speaker, add captions, hook, zooms,
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 from dataclasses import dataclass, field
@@ -229,11 +230,13 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     g.append(f"{a_chain}{','.join(audio_filters + ['aresample=48000'])}[aout]")
 
     out = job.out_dir / f"{job.name}.mp4"
+    partial = work / "render.mp4"  # moved into place only once complete
     run_ffmpeg([*inputs, "-filter_complex", ";".join(g), "-map", "[vout]", "-map", "[aout]",
                 "-t", f"{duration:.3f}", "-r", str(fps),
                 "-c:v", "libx264", "-preset", preset.x264_preset, "-crf", str(preset.crf),
                 "-profile:v", "high", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", str(out)])
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", str(partial)])
+    os.replace(partial, out)
 
     thumb = extract_frame(out, min(1.2, duration / 2), job.out_dir / f"{job.name}.jpg", width=W)
     for p in work.iterdir():

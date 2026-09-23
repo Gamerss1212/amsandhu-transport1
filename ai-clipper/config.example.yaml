@@ -76,6 +76,7 @@ analysis:
   # Used when there is no ANTHROPIC_API_KEY (built-in judge, no AI service needed).
   local_content_threshold: 72
   local_fused_threshold: 64
+  local_band: 6                  # also must score within this many points of the video's best moment
   judge_with_frames: true        # show the AI judge real frames from each candidate
   use_comments: true             # mine YouTube comments for "12:34 was insane"-style timestamps
   max_comment_pages: 5

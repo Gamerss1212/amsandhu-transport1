@@ -34,14 +34,28 @@ STRONG_OPEN = re.compile(
     r"what (if|most|nobody|people)|why (do|does|is|are)|how (do|does|to)|i (never|always|lost|made|quit|"
     r"got|was|had|remember|used to|nearly|almost|just)|my (dad|mom|father|mother|wife|husband|son|"
     r"daughter|first|biggest|brother|sister)|when i was|the day|one day|imagine|stop|most people|"
-    r"everyone|everybody|this is (why|how|the)|let me tell you|i'll never forget|\d)")
-INTENSE = re.compile(
-    r"\b(died|dead|death|kill(ed)?|fired|million|billion|prison|jail|cancer|divorce|cheat(ed)?|broke|"
-    r"homeless|addict(ed|ion)?|panic|scared|terrified|cry(ing)?|cried|insane|crazy|worst|best|secret|"
-    r"lie|lied|lying|truth|shock(ing|ed)?|hate|war|fight|money|rich|famous|dangerous|illegal|"
-    r"destroy(ed)?|never|nobody|everyone|biggest|craziest|unbelievable|shit|fuck(ing)?|damn|"
-    r"hell|suicide|depress(ed|ion)|anxiety|trauma|abuse|attack(ed)?|arrest(ed)?|lawsuit|bankrupt|"
-    r"quit|lost|failure|failed|regret|ashamed|embarrass(ed|ing)?|obsess(ed)?|wild|nuts|ridiculous)\b")
+    r"everyone|everybody|this is (why|how|the)|let me tell you|i'll never forget|you're a|"
+    r"you (said|were|went|did|told|knew|lied|had|claim|admitted)|\d)")
+_INTENSE_WORDS = """
+died dead death dying kill killed killing killer murder murdered shot shooting gun stabbed war bomb attack
+attacked blood violent violence weapon suicide overdose funeral genocide holocaust nazi nazis terror terrorist
+hostage torture tortured massacre executed
+prison jail jailed arrested cops police fbi cia lawsuit sued illegal crime criminal fraud scam scammed stole
+stolen steal robbed cheat cheated cheating bribe corrupt corruption hacked leaked exposed conspiracy
+evil guilt guilty shame ashamed regret regrets betrayed betrayal lied lie lies lying liar hate hated revenge
+jealous furious angry rage scared afraid terrified fear panic anxiety depressed depression lonely heartbroken
+cry crying cried tears trauma traumatized abused abuse bullied humiliated embarrassed embarrassing disgusting
+insane crazy wild nuts unbelievable shocking shocked horrible horrific terrible worst best greatest ridiculous
+dangerous destroyed destroy ruined obsessed obsession nightmare miracle
+million millions billion billions rich broke bankrupt debt fired famous fame mansion fortune
+sex affair divorce divorced pregnant breakup dumped
+drugs cocaine heroin meth drunk addicted addiction rehab alcoholic
+shit fuck fucking fucked damn hell bitch
+never nobody everyone secret truth biggest craziest
+"""
+INTENSE = re.compile(r"\b(" + "|".join(sorted(set(_INTENSE_WORDS.split()), key=len, reverse=True)) + r")\b")
+BLUNT_START = {"no", "nope", "never", "not", "yes", "yeah", "absolutely", "none", "zero", "nothing", "of",
+               "exactly", "definitely", "correct", "wrong"}
 LAUGH = re.compile(r"\[(laughter|laughs|laughing)\]|\((laughter|laughs|laughing)\)|\bha(ha)+\b|\blol\b", re.I)
 NUMBER = re.compile(r"(\$\s?\d|\b\d[\d,.]*\s?(%|percent|k|million|billion|years?|days?|months?|hours?|"
                     r"times|pounds|kilos)?\b)")
@@ -84,6 +98,8 @@ class Seg:
     start_flaw: str     # why it can't open a clip ("" if fine)
     ends_open: bool     # the thought obviously continues into the next sentence
     clean_break: bool   # a pause or the other person starts talking right after
+    question: bool      # ends with a question mark
+    blunt: bool         # a short, flat answer: "No.", "Not at all.", "Never."
 
 
 def _hook_strength(text: str, words: list[str], profile_lift: dict) -> float:
@@ -100,6 +116,8 @@ def _hook_strength(text: str, words: list[str], profile_lift: dict) -> float:
     score += 0.06 * min(3, len(INTENSE.findall(low)))
     score += 0.06 if NUMBER.search(low) else 0.0
     n = len(words)
+    stumbles = sum(a == b for a, b in zip(words, words[1:])) + len(re.findall(r"\bthe that\b|\bi was like\b", low))
+    score -= 0.1 * min(3, stumbles)
     if n < 4:
         score -= 0.25
     elif n > 30:
@@ -135,19 +153,21 @@ def build_segments(segments: list[dict], profile: dict | None) -> list[Seg]:
         ends_open = bool(nxt_words and nxt_words[0] in CONJ and not new_speaker and gap < 1.0) or \
             text.rstrip().endswith((",", "-", "..."))
         clean_break = nxt is None or new_speaker or gap >= 0.7
+        blunt = 1 <= len(words) <= 6 and words[0] in BLUNT_START
         out.append(Seg(s["s"], s["e"], text, words, _hook_strength(text, words, lift),
-                       _start_flaw(words, text), ends_open, clean_break))
+                       _start_flaw(words, text), ends_open, clean_break, text.rstrip().endswith("?"), blunt))
     return out
 
 
 def _length_score(dur: float, profile: dict | None) -> float:
+    """Length matters, but less than content: a gentle preference for what's working now."""
     d = (profile or {}).get("viral_duration") or {}
-    lo, mid, hi = d.get("p25") or 22.0, d.get("median") or 35.0, d.get("p75") or 55.0
+    lo, mid, hi = d.get("p25") or 25.0, d.get("median") or 40.0, d.get("p75") or 65.0
     lo, hi = max(15.0, min(lo, mid)), max(hi, mid + 5)
     if lo <= dur <= hi:
-        return 1.0 - 0.3 * abs(dur - mid) / max(1.0, hi - lo)
+        return 1.0 - 0.2 * abs(dur - mid) / max(1.0, hi - lo)
     edge = lo if dur < lo else hi
-    return float(max(0.0, 0.7 - abs(dur - edge) / 40.0))
+    return float(max(0.3, 0.8 - abs(dur - edge) / 60.0))
 
 
 def _reaction(signals: dict, start: float, end: float) -> float | None:
@@ -191,9 +211,12 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
 
     # payoff: how it ends
     tail = " ".join(segs[k].text for k in range(max(i, j - 1), j + 1)).lower()
-    mic_drop = 2 <= len(last.words) <= 10 and last.text.rstrip().endswith((".", "!"))
+    mic_drop = (2 <= len(last.words) <= 10 and last.text.rstrip().endswith((".", "!"))) or last.blunt
+    # ends on a flat answer to a pointed question ("No feeling of guilt?" "None of that.")
+    answered = last.blunt and any(segs[k].question for k in range(max(i, j - 3), j))
     payoff = 0.3 + 0.25 * bool(PUNCHLINE.search(tail)) + 0.2 * bool(LAUGH.search(tail)) + \
-        0.1 * ("!" in tail) + 0.15 * last.clean_break + 0.1 * mic_drop
+        0.1 * ("!" in tail) + 0.15 * last.clean_break + 0.1 * mic_drop + 0.2 * answered + \
+        0.1 * bool(INTENSE.search(tail))
     energy_end = window_score(signals.get("pct", {}).get("energy"), end - min(8.0, dur / 3), end)
     if energy_end is not None:
         payoff = 0.6 * payoff + 0.4 * energy_end / 100
@@ -208,8 +231,11 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     nums = len(NUMBER.findall(low))
     laughs = len(LAUGH.findall(low))
     hook_hits = sum(1 for pat in HOOK_PATTERNS.values() if re.search(pat, low))
+    # confrontation: a pointed question answered flatly within the next couple of lines
+    pressed = sum(1 for k in range(i, j) if segs[k].question and
+                  any(segs[m].blunt for m in range(k + 1, min(j, k + 3) + 1)))
     intensity = 0.2 + min(0.35, intense * 12) + min(0.15, you * 3) + min(0.12, 0.04 * nums) + \
-        min(0.15, 0.08 * laughs) + min(0.15, 0.03 * hook_hits)
+        min(0.15, 0.08 * laughs) + min(0.15, 0.03 * hook_hits) + min(0.25, 0.12 * pressed)
     energy = window_score(signals.get("pct", {}).get("energy"), start, end)
     if energy is not None:
         intensity = 0.7 * intensity + 0.3 * energy / 100
@@ -220,7 +246,7 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     # pace and dead air
     wps = n / dur
     fillers = sum(w in FILLERS for w in words) / n
-    pace = float(np.clip((wps - 1.4) / 1.6, 0.0, 1.0)) - min(0.4, fillers * 6)
+    pace = float(np.clip((wps - 1.5) / 0.9, 0.0, 1.0)) - min(0.4, fillers * 6)  # 2.4+ words/s = full marks
     if wps < 1.5:
         flaws.append("too much dead air")
 

@@ -424,13 +424,15 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
                 fuse(c, signals, profile, transcript_lines(segs, c.start, c.end), a["weights"])
 
     approved = []
+    best_local = max((c.ai_score for c in shortlist if not c.fatal_flaws), default=0.0)
     for c in shortlist:
         if llm:
             ok = (c.judge_score is None or c.judge_score >= a["judge_threshold"]) and \
                 c.fused_score >= a["fused_threshold"]
         else:
+            # strict twice over: good in absolute terms AND one of this video's standout moments
             ok = not c.fatal_flaws and c.ai_score >= a["local_content_threshold"] and \
-                c.fused_score >= a["local_fused_threshold"]
+                c.ai_score >= best_local - a["local_band"] and c.fused_score >= a["local_fused_threshold"]
         if ok:
             c.final_score = round(0.6 * c.judge_score + 0.4 * c.fused_score, 1) if c.judge_score is not None \
                 else c.fused_score
