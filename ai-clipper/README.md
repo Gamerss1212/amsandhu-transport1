@@ -2,11 +2,11 @@
 
 A fully automated AI clipper. You press one button, **GET CLIPS**, and it:
 
-1. **Analyzes what goes viral right now.** It pulls 1000+ fresh short-form videos (YouTube Shorts
+1. **Analyzes what goes viral right now.** It pulls 350+ fresh short-form videos (YouTube Shorts
    for free; TikTok and Instagram Reels too if you add the optional Apify token) and scores each one
    for virality: views, growth speed, reach beyond the creator's followers, engagement, and
    shares/saves. It then learns which hooks, lengths, words, hashtags and posting times separate
-   viral videos from flops. The run stops if fewer than 1000 videos are available.
+   viral videos from flops. The run stops if fewer than 350 videos are available.
 2. **Finds long-form YouTube videos and watches all of them.** It checks the channels you watch
    in real time (new uploads show up within minutes), YouTube's most-popular chart, and
    searches for long, high-view videos. It ranks them by growth, size and trend fit. For the
@@ -42,7 +42,8 @@ Each clip comes with a thumbnail and a ready-to-paste caption with hashtags and 
 
 Download **AIClipper-Windows.zip** from this repository's Releases page (release "AI Clipper for Windows"),
 unzip it, and double-click **AIClipper.exe**. No Python and no keys needed: it opens the app in your
-browser. Press **GET CLIPS**, or paste a video link / file into **Clip this video**.
+browser. Choose **Find videos for me** or **Use my videos** (paste links/files), pick how many clips you
+want and an editing style, and press the big button.
 `START HERE.txt` in the zip has the step-by-step guide.
 
 The exe is rebuilt automatically by GitHub Actions (`.github/workflows/build-windows.yml`) whenever the code changes.
@@ -67,7 +68,8 @@ To build it yourself on Windows: `pip install -r requirements.txt pyinstaller` t
    - `discovery.search_queries`: the kinds of long videos to look for.
    - `trends.tiktok.hashtags` / `trends.instagram.hashtags`: the niche to study.
    - `editing.default_level`: your usual editing level.
-5. **Optional assets** for the professional and extreme levels. These folders are skipped when empty:
+5. **Your own assets (optional)** for the professional and extreme levels. When these folders are empty,
+   built-in royalty-free music, a whoosh and animated b-roll are used instead:
    - `assets/music/`: royalty-free background tracks (.mp3/.wav)
    - `assets/sfx/`: whoosh/pop sounds
    - `assets/broll/`: satisfying clips or gameplay for the extreme split screen

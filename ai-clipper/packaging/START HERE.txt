@@ -10,20 +10,16 @@ SETUP (once)
    Keep the black window open while you use it - closing it quits the app.
    No keys or accounts are needed - it's free.
 
-GET CLIPS AUTOMATICALLY
-4. Pick an editing level (simple, normal, hard, professional, extreme).
-5. Press GET CLIPS. It will:
-     - study 1000+ short videos to learn what's going viral right now,
-     - find popular long YouTube podcasts/interviews from the last 2 weeks,
-     - download and transcribe the whole video, pick only the strongest moments,
-     - edit them into vertical 9:16 clips with captions.
-   The first run takes longer (it downloads the speech-recognition model, ~500 MB).
+MAKE CLIPS
+4. Choose where the videos come from:
+     - "Find videos for me": it studies 350+ short videos to learn what's going viral right now,
+       finds popular long podcasts/interviews from the last 2 weeks, and watches them in full.
+     - "Use my videos": paste YouTube links or video file paths, one per line.
+       Tip: in File Explorer, Shift + right-click a video -> "Copy as path", then paste.
+5. Choose how many clips you want. They can come from different videos - only the best make it.
+6. Choose an editing style (simple, normal, hard, professional, extreme) and press the big button.
+   The first run takes longer (it downloads the speech-recognition model, ~500 MB, once).
    A long video takes roughly 10-40 minutes depending on your PC.
-
-CLIP A VIDEO YOU CHOOSE
-6. Paste a YouTube link (or another video link, or a video file path) into the
-   "paste a video link" box and press "Clip this video".
-   Tip: in File Explorer, Shift + right-click a video -> "Copy as path", then paste.
 
 YOUR CLIPS
 - They appear in the app with Play / Download / Copy caption buttons, and are saved in

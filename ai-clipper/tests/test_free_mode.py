@@ -186,7 +186,7 @@ def test_web_clip_endpoint(cfg):
     client = TestClient(create_app(cfg))
     assert client.post("/api/clip", json={"source": "  "}).status_code == 400
     assert client.post("/api/clip", json={"source": "x", "level": "ultra"}).status_code == 400
-    assert "Clip this video" in client.get("/").text
+    assert "Use my videos" in client.get("/").text
 
 
 def test_news_broadcasts_are_skipped(cfg, monkeypatch):

@@ -21,11 +21,16 @@ from ..pipeline import Pipeline, list_outputs
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
 LEVEL_INFO = {
-    "simple": "Clean vertical cut + readable captions",
-    "normal": "Face-tracking crop, bold pop-in captions, hook title, pause trimming",
-    "hard": "Jump cuts (pauses + ums removed), karaoke captions, punch-in zooms, colour grade",
-    "professional": "Smooth speaker tracking, pattern-interrupt zooms, music ducking, sfx, progress bar",
-    "extreme": "Everything + b-roll split screen, flashes on peaks, faster pacing, slow push-in",
+    "simple": ("A clean vertical cut with easy-to-read captions.",
+               ["9:16 crop", "Captions", "Loudness fix"]),
+    "normal": ("Follows the speaker's face, bold pop-in captions and a hook title.",
+               ["Face tracking", "Pop-in captions", "Hook title", "Pause trim"]),
+    "hard": ("Tight jump cuts with word-by-word captions and punch-in zooms.",
+             ["Jump cuts", "Karaoke captions", "Punch-in zooms", "Color grade"]),
+    "professional": ("Polished like a pro editor: music under the voice, whooshes, progress bar.",
+                     ["Smooth tracking", "Pattern zooms", "Music", "Whoosh SFX", "Progress bar"]),
+    "extreme": ("Everything, plus a split screen with b-roll, flashes and faster pacing.",
+                ["B-roll split", "Flashes", "Push-in", "Faster pacing"]),
 }
 
 
@@ -72,8 +77,11 @@ def create_app(cfg: Config) -> FastAPI:
         profile = pipe.db.latest_profile()
         return {
             "running": pipe.running,
-            "levels": [{"name": n, "info": LEVEL_INFO[n]} for n in LEVEL_NAMES],
+            "levels": [{"name": n, "info": LEVEL_INFO[n][0], "tags": LEVEL_INFO[n][1]} for n in LEVEL_NAMES],
             "default_level": cfg["editing"]["default_level"],
+            "default_clips": cfg["editing"].get("clips_per_run", 5),
+            "min_videos": cfg["trends"]["min_videos"],
+            "output_dir": str(out_dir.resolve()),
             "keys": {"anthropic": bool(cfg.anthropic_key), "youtube": bool(cfg.youtube_key),
                      "apify": bool(cfg.apify_token)},
             "watch_channels": len(cfg["discovery"]["watch_channels"]),
@@ -81,7 +89,8 @@ def create_app(cfg: Config) -> FastAPI:
                 "n_videos": profile["n_videos"], "n_viral": profile["n_viral"],
                 "created_at": profile["created_at"], "auc": profile.get("model_auc"),
                 "hooks": profile.get("hook_lift", [])[:5], "durations": profile.get("duration_lift", [])[:4],
-                "terms": profile.get("top_viral_terms", [])[:15]},
+                "terms": profile.get("top_viral_terms", [])[:15],
+                "platforms": {k: v.get("videos", 0) for k, v in profile.get("platforms", {}).items()}},
         }
 
     @app.post("/api/run")

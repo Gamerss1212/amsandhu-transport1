@@ -55,7 +55,7 @@ def test_watchlist_reports_new_uploads_once(cfg, monkeypatch):
 def test_web_app_endpoints(cfg):
     client = TestClient(create_app(cfg))
     page = client.get("/")
-    assert page.status_code == 200 and "GET CLIPS" in page.text
+    assert page.status_code == 200 and "Make clips" in page.text and "How many clips" in page.text
     st = client.get("/api/status").json()
     assert [l["name"] for l in st["levels"]] == ["simple", "normal", "hard", "professional", "extreme"]
     assert st["running"] is False
