@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..trends.analyzer import HOOK_PATTERNS
-from .signals import window_score
+from .signals import LAUGH_STRONG, window_score
 
 CONJ = {"and", "but", "so", "because", "or", "cause", "plus", "then", "also", "anyway", "anyways", "which"}
 SOFT_START = {"um", "uh", "like", "yeah", "yes", "right", "okay", "ok", "well", "mm", "hmm", "oh", "no",
@@ -54,6 +54,11 @@ shit fuck fucking fucked damn hell bitch
 never nobody everyone secret truth biggest craziest
 """
 INTENSE = re.compile(r"\b(" + "|".join(sorted(set(_INTENSE_WORDS.split()), key=len, reverse=True)) + r")\b")
+SHOW_BREAK = re.compile(r"\b(we'?ll be (right )?back|we are back|we're back|welcome back|after the break|"
+                        r"stay tuned|don'?t go anywhere|right after this)\b")
+PROMO = re.compile(r"\b(subscribe|patreon|link in|promo code|use code|sponsored|brought to you by|tickets|tour dates|"
+                   r"on tour|on the road|catch (him|her|me|us|them) live|check out (my|our|his|her)|"
+                   r"follow (me|us|him|her)|dot com|i'?ll be in|i'?m going to be in|merch)\b")
 WEAK_END = {"the", "a", "an", "in", "of", "to", "and", "or", "but", "that", "this", "for", "on", "at", "with",
             "from", "by", "is", "was", "are", "were", "be", "my", "your", "his", "her", "their", "our", "its",
             "it", "i", "you", "he", "she", "we", "they", "so", "if", "as", "about", "like", "just", "um", "uh"}
@@ -188,6 +193,25 @@ def _reaction(signals: dict, start: float, end: float) -> float | None:
     return float(min(1.0, raw[s:e].max() / ref)) if ref > 0 else 0.0
 
 
+def _laughs(signals: dict, start: float, end: float) -> tuple[float, float] | None:
+    """(overall 0-1, strength of a laugh in the first 10 s) - only for videos that run on laughs."""
+    raw = signals.get("raw", {}).get("reaction")
+    comedy = signals.get("comedy", 0.0)
+    if raw is None or comedy <= 0:
+        return None
+    ref = 1.5 * LAUGH_STRONG
+    s, e = int(max(0, start)), int(min(len(raw), end + 3))
+    seg = raw[s:e]
+    if not len(seg):
+        return None
+    strong = seg >= LAUGH_STRONG
+    bursts = int(np.sum(np.diff(np.r_[0, strong.astype(np.int8)]) == 1))
+    top = float(min(1.0, np.mean(np.sort(seg)[::-1][:3]) / ref))
+    overall = 0.5 * min(1.0, bursts / 3) + 0.5 * top
+    early = float(min(1.0, raw[s:min(e, s + 10)].max(initial=0) / ref))
+    return comedy * overall, comedy * early
+
+
 def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict | None) -> dict:
     """Scores the clip made of sentences i..j (inclusive)."""
     first, last = segs[i], segs[j]
@@ -207,6 +231,9 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
         flaws.append(first.start_flaw)
     if first.words and first.words[0] in CONTEXT_START:
         hook -= 0.15
+    laughs = _laughs(signals, start, end)
+    if laughs and laughs[1] >= 0.5:  # a laugh in the first seconds means the opening already works
+        hook = max(hook, 0.55 + 0.35 * laughs[1])
 
     # standalone + clean ending
     standalone = 1.0 - (0.25 if first.words and first.words[0] in CONTEXT_START else 0.0)
@@ -214,6 +241,13 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
         flaws.append("cuts off mid-thought")
     if BACKREF.search(low):
         standalone -= 0.3
+    inner = " ".join(segs[k].text for k in range(i, j)).lower()  # everything but the last line
+    if SHOW_BREAK.search(inner):
+        flaws.append("runs across a show break")
+    promos = len(PROMO.findall(low))
+    if promos >= 2:
+        flaws.append("promo / plug talk")
+    standalone -= 0.2 * min(1, promos)
 
     # payoff: how it ends
     tail = " ".join(segs[k].text for k in range(max(i, j - 1), j + 1)).lower()
@@ -235,13 +269,13 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     intense = len(INTENSE.findall(low)) / n
     you = sum(w in ("you", "your", "you're") for w in words) / n
     nums = len(NUMBER.findall(low))
-    laughs = len(LAUGH.findall(low))
+    laugh_tags = len(LAUGH.findall(low))
     hook_hits = sum(1 for pat in HOOK_PATTERNS.values() if re.search(pat, low))
     # confrontation: a pointed question answered flatly within the next couple of lines
     pressed = sum(1 for k in range(i, j) if segs[k].question and
                   any(segs[m].blunt for m in range(k + 1, min(j, k + 3) + 1)))
     intensity = 0.2 + min(0.35, intense * 12) + min(0.15, you * 3) + min(0.12, 0.04 * nums) + \
-        min(0.15, 0.08 * laughs) + min(0.15, 0.03 * hook_hits) + min(0.25, 0.12 * pressed)
+        min(0.15, 0.08 * laugh_tags) + min(0.15, 0.03 * hook_hits) + min(0.25, 0.12 * pressed)
     energy = window_score(signals.get("pct", {}).get("energy"), start, end)
     if energy is not None:
         intensity = 0.7 * intensity + 0.3 * energy / 100
@@ -262,6 +296,9 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     parts = {k: float(np.clip(v, 0.0, 1.0)) for k, v in parts.items()}
     content = 100 * (0.30 * parts["hook"] + 0.12 * parts["standalone"] + 0.16 * parts["payoff"] +
                      0.24 * parts["intensity"] + 0.10 * parts["pace"] + 0.08 * parts["length"])
+    if laughs:  # real laughter is the strongest evidence a moment works; no laughter changes nothing
+        parts["laughs"] = laughs[0]
+        content = min(100.0, content + 14 * laughs[0])
     return {"start": start, "end": end, "score": round(content, 1), "parts": parts, "flaws": flaws,
             "text": text}
 
@@ -310,11 +347,11 @@ def review(text: str, start: float, end: float, segments: list[dict], signals: d
     return score_window(segs, idx[0], idx[-1], signals, profile)
 
 
-def category(text: str) -> str:
+def category(text: str, laughs: float = 0.0) -> str:
     low = text.lower()
     if len(GRAVE.findall(low)) >= 2:  # heavy subject: never a jokey caption
         return "serious"
-    if LAUGH.search(text):
+    if LAUGH.search(text) or laughs >= 0.5:
         return "funny"
     scores = {}
     for h, pat in HOOK_PATTERNS.items():

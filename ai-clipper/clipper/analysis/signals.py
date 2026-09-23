@@ -88,6 +88,12 @@ def reaction_curve(wav_path, words: list[dict], duration: int, hop: float = 0.1)
     speech_db = float(np.median(db[speaking]))
     # a reaction is a gap between words that is nearly as loud as (or louder than) the speech
     excess = np.clip(db - (speech_db - 6.0), 0, None) * ~speaking
+    # laughter and applause come in bursts; a long loud stretch without words is music (intros, breaks)
+    loud = excess > 0
+    edges = np.flatnonzero(np.diff(np.r_[0, loud.astype(np.int8), 0]))
+    for a, b in zip(edges[::2], edges[1::2]):
+        if (b - a) * hop > 8.0:
+            excess[a:b] = 0
     per_s = int(round(1 / hop))
     secs = min(duration, n // per_s)
     curve = np.zeros(duration)
@@ -147,4 +153,22 @@ def compute_signals(info: dict, transcript: dict, wav_path, comments: list[dict]
         "reaction": reaction_curve(wav_path, transcript["words"], d) if wav_path else None,
         "pace": pace_curve(transcript["words"], d),
     }
-    return {"raw": raw, "pct": {k: to_percentiles(v) for k, v in raw.items()}}
+    return {"raw": raw, "pct": {k: to_percentiles(v) for k, v in raw.items()},
+            "comedy": comedy_factor(raw["reaction"], duration)}
+
+
+LAUGH_STRONG = 40.0  # reaction strength of a clear laugh (dB above speech level, summed per second)
+
+
+def comedy_factor(reaction: np.ndarray | None, duration: float) -> float:
+    """0-1: how much this video runs on laughs. A comedy show has well over one clear laugh a minute;
+    an interview or report has the odd chuckle, applause or background sound."""
+    if reaction is None or duration <= 0:
+        return 0.0
+    events, last = 0, -99
+    for t in np.flatnonzero(reaction >= LAUGH_STRONG):
+        if t - last >= 3:
+            events += 1
+        last = t
+    rate = events / (duration / 60)
+    return float(np.clip((rate - 0.6) / 0.8, 0.0, 1.0))

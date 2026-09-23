@@ -151,3 +151,16 @@ def test_reaction_curve_finds_laughter_between_words(tmp_path):
     curve = reaction_curve(path, words, 20)
     assert curve is not None and int(np.argmax(curve)) == 9
     assert curve[:7].sum() == 0 and curve[12:].sum() == 0
+
+
+def test_comedy_factor_separates_comedy_from_interviews():
+    from clipper.analysis.signals import LAUGH_STRONG, comedy_factor
+
+    minutes = 10
+    comedy = np.zeros(minutes * 60)
+    comedy[::30] = LAUGH_STRONG + 20     # a clear laugh every 30 s
+    interview = np.zeros(minutes * 60)
+    interview[::150] = LAUGH_STRONG + 20  # the odd chuckle
+    assert comedy_factor(comedy, minutes * 60) == 1.0
+    assert comedy_factor(interview, minutes * 60) == 0.0
+    assert comedy_factor(None, 600) == 0.0

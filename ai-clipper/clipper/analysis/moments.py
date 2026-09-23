@@ -370,7 +370,7 @@ def local_review(clips: list[Clip], meta: dict, transcript: dict, signals: dict,
         c.ai_score = r["score"]
         c.fatal_flaws = r["flaws"]
         c.judge_reasons = "Built-in judge: " + ", ".join(f"{k} {v * 100:.0f}" for k, v in r["parts"].items())
-        c.category = local_judge.category(text)
+        c.category = local_judge.category(text, r["parts"].get("laughs", 0.0))
         c.hook = local_judge.hook_text(segs, c.start, c.end, profile)
         c.title = c.hook.rstrip(".")[:70]
         c.summary = text[:280]
