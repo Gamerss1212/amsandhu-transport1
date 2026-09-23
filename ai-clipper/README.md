@@ -42,7 +42,8 @@ Each clip comes with a thumbnail and a ready-to-paste caption with hashtags and 
 
 Download **AIClipper-Windows.zip** from this repository's Releases page (release "AI Clipper for Windows"),
 unzip it, and double-click **AIClipper.exe**. No Python and no keys needed: it opens the app in your
-browser. `START HERE.txt` in the zip has the details.
+browser. Press **GET CLIPS**, or paste a video link / file into **Clip this video**.
+`START HERE.txt` in the zip has the step-by-step guide.
 
 The exe is rebuilt automatically by GitHub Actions (`.github/workflows/build-windows.yml`) whenever the code changes.
 To build it yourself on Windows: `pip install -r requirements.txt pyinstaller` then `pyinstaller AIClipper.spec`.
@@ -88,6 +89,7 @@ clips with Play / Download / Copy caption buttons. Clips are saved in `output/`.
 Other commands:
 ```bash
 python -m clipper run --level extreme      # one full run from the terminal
+python -m clipper clip "https://youtu.be/..."  # clip one video you choose (link or file)
 python -m clipper watch                    # real-time upload watcher
 python -m clipper watch --auto-clip        # ...that runs the whole pipeline on every new upload
 ```
@@ -107,8 +109,10 @@ In `config.yaml` → `analysis`:
 
 ## Troubleshooting
 
-- **"Sign in to confirm you're not a bot"** from YouTube: set `analysis.cookies_from_browser: chrome`
-  (or firefox/edge/brave/safari) so downloads use your logged-in browser session.
+- **"Sign in to confirm you're not a bot"** from YouTube: sign in to YouTube in your browser. The app
+  automatically retries with the YouTube login from Firefox, Edge, Chrome, Brave, Opera or Vivaldi.
+  Chrome/Edge lock their cookie file while open, so close them fully or use Firefox. You can also set
+  `analysis.cookies_from_browser: firefox` (or point `cookies_file` at an exported cookies.txt).
 - **"Only N short videos available"**: check your internet connection, add more channels under
   `trends.free.youtube_channels`, or just run again (collected videos add up). You can also drop `.json` / `.csv` exports into
   `data/trend_imports/` (columns such as `id, caption, views, likes, comments, shares, duration,

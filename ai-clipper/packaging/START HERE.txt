@@ -1,18 +1,43 @@
 AI CLIPPER - WINDOWS
 
-1. Unzip this folder somewhere permanent (e.g. Documents\AIClipper). Don't run it from inside the zip.
+SETUP (once)
+1. Unzip this folder somewhere permanent, e.g. Documents\AIClipper.
+   (Right-click the zip -> Extract All. Don't run it from inside the zip.)
 2. Double-click AIClipper.exe.
    If Windows says "Windows protected your PC", click "More info" -> "Run anyway".
    (This appears because the app isn't code-signed.)
-3. Your browser opens AI Clipper. Pick an editing level and press GET CLIPS.
+3. A black window opens, then your browser opens AI Clipper.
+   Keep the black window open while you use it - closing it quits the app.
    No keys or accounts are needed - it's free.
-   Keep the black window open while it runs - closing it quits the app.
 
-Your files (all next to AIClipper.exe):
-  output\       finished clips (.mp4 + thumbnail + caption .txt)
-  config.yaml   settings: channels to watch, search topics, strictness
+GET CLIPS AUTOMATICALLY
+4. Pick an editing level (simple, normal, hard, professional, extreme).
+5. Press GET CLIPS. It will:
+     - study 1000+ short videos to learn what's going viral right now,
+     - find popular long YouTube podcasts/interviews from the last 2 weeks,
+     - download and transcribe the whole video, pick only the strongest moments,
+     - edit them into vertical 9:16 clips with captions.
+   The first run takes longer (it downloads the speech-recognition model, ~500 MB).
+   A long video takes roughly 10-40 minutes depending on your PC.
+
+CLIP A VIDEO YOU CHOOSE
+6. Paste a YouTube link (or another video link, or a video file path) into the
+   "paste a video link" box and press "Clip this video".
+   Tip: in File Explorer, Shift + right-click a video -> "Copy as path", then paste.
+
+YOUR CLIPS
+- They appear in the app with Play / Download / Copy caption buttons, and are saved in
+  the "output" folder next to AIClipper.exe (video + thumbnail + ready-to-post caption).
+
+IF YOUTUBE SAYS "CONFIRM YOU'RE NOT A BOT"
+- Open YouTube in Firefox, Edge or Chrome on this PC and make sure you're signed in.
+  AI Clipper uses that login automatically. If it still fails, close the browser
+  completely and try again (Chrome/Edge lock their login file while open; Firefox doesn't).
+
+OTHER FILES (next to AIClipper.exe)
+  config.yaml   settings: channels to watch, search topics, strictness, clip length
   .env          optional extra keys (not needed)
-  assets\       optional music, sound effects, b-roll and fonts for pro/extreme levels
+  assets\       optional music, sound effects, b-roll and fonts for professional/extreme
 
-Check your setup: open a Command Prompt in this folder and run  AIClipper.exe doctor
-If YouTube says "confirm you're not a bot": in config.yaml set  cookies_from_browser: chrome
+CHECK YOUR SETUP
+  Open a Command Prompt in this folder and run:  AIClipper.exe doctor

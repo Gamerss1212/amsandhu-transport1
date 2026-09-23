@@ -54,6 +54,9 @@ shit fuck fucking fucked damn hell bitch
 never nobody everyone secret truth biggest craziest
 """
 INTENSE = re.compile(r"\b(" + "|".join(sorted(set(_INTENSE_WORDS.split()), key=len, reverse=True)) + r")\b")
+WEAK_END = {"the", "a", "an", "in", "of", "to", "and", "or", "but", "that", "this", "for", "on", "at", "with",
+            "from", "by", "is", "was", "are", "were", "be", "my", "your", "his", "her", "their", "our", "its",
+            "it", "i", "you", "he", "she", "we", "they", "so", "if", "as", "about", "like", "just", "um", "uh"}
 BLUNT_START = {"no", "nope", "never", "not", "yes", "yeah", "absolutely", "none", "zero", "nothing", "of",
                "exactly", "definitely", "correct", "wrong"}
 LAUGH = re.compile(r"\[(laughter|laughs|laughing)\]|\((laughter|laughs|laughing)\)|\bha(ha)+\b|\blol\b", re.I)
@@ -66,7 +69,10 @@ CATEGORY_OF = {"funny": "funny", "shock": "shocking", "emotional": "emotional", 
                "story": "story", "howto": "educational", "money": "insightful", "reaction": "drama",
                "question": "insightful", "pov": "story", "number_list": "educational",
                "watch_till_end": "story"}
+GRAVE = re.compile(r"\b(holocaust|nazis?|genocide|died|death|killed|murder(ed)?|suicide|cancer|abuse[d]?|war|"
+                   r"funeral|overdose|massacre|terminal|passed away)\b")
 CAPTION_PROMPT = {
+    "serious": "Let that sink in.",
     "funny": "I can't with this 😂 Who else lost it?",
     "shocking": "Wait... is this real?? 🤯",
     "emotional": "This one hit different ❤️",
@@ -306,6 +312,8 @@ def review(text: str, start: float, end: float, segments: list[dict], signals: d
 
 def category(text: str) -> str:
     low = text.lower()
+    if len(GRAVE.findall(low)) >= 2:  # heavy subject: never a jokey caption
+        return "serious"
     if LAUGH.search(text):
         return "funny"
     scores = {}
@@ -332,9 +340,21 @@ def hook_text(segments: list[dict], start: float, end: float, profile: dict | No
     text = _clean(best["text"], keep_laughs=False)
     text = re.sub(r"^((and|but|so|um|uh|like|yeah|okay|well|oh)[,.]?\s+)+", "", text, flags=re.I)
     words = text.split()
-    if len(words) > 10:
+    # a clause that can stand alone reads better on screen: "I was 14 years old and I would say..." ->
+    # "I was 14 years old..."
+    joint = next((k for k in range(4, min(len(words), 10)) if words[k].lower() in ("and", "but", "because")), None)
+    if joint and len(words) > 8:
+        text = " ".join(words[:joint]).rstrip(",;:") + "..."
+    elif len(words) > 10:
         cut = next((k + 1 for k in range(4, 10) if words[k].endswith((",", ";", ":"))), None)
-        text = " ".join(words[:cut]).rstrip(",;:") if cut else " ".join(words[:9]) + "..."
+        if cut:
+            text = " ".join(words[:cut]).rstrip(",;:")
+        else:
+            # never end an overlay on "the", "in", "of"...: back up to the last meaningful word
+            keep = 9
+            while keep > 4 and re.sub(r"[^\w']", "", words[keep - 1]).lower() in WEAK_END:
+                keep -= 1
+            text = " ".join(words[:keep]).rstrip(",;:") + "..."
     return text[:1].upper() + text[1:]
 
 
