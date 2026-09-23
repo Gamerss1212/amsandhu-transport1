@@ -186,12 +186,26 @@
            padding: 10px 16px; border-radius: 99px; font-weight: 700; font-size: 14px; opacity: 0; transition: .2s; pointer-events: none; }
   .toast.show { opacity: 1; translate: -50% 0; }
   [hidden] { display: none !important; }
+  .chipbtn { cursor: pointer; } .chipbtn:hover { border-color: var(--line2); color: var(--text); }
+  .fixrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .fixrow .btn { flex: none; padding: 8px 14px; }
+  #yt { width: min(620px, 94vw); padding: 24px; position: relative; }
+  #yt h3 { margin: 0 0 4px; font-size: 20px; padding-right: 34px; }
+  #yt .opt { background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-top: 14px; }
+  #yt .opt b { display: block; margin-bottom: 4px; }
+  #yt ol { margin: 6px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  #yt ol li { margin: 3px 0; }
+  #yt .status { margin-top: 14px; font-size: 14px; }
+  .drop { display: block; margin-top: 10px; border: 1.5px dashed var(--line2); border-radius: 12px; padding: 16px; text-align: center;
+          color: var(--muted); font-size: 14px; cursor: pointer; }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); }
 </style>
 </head>
 <body>
 <header class="top">
   <div class="logo"><i></i>AI Clipper</div>
   <div class="grow"></div>
+  <button class="chip chipbtn" id="ytChip" title="YouTube login used for downloads">YouTube login</button>
   <span class="chip" id="mode"></span>
   <span class="chip"><span class="dot" id="dot"></span><b id="state">Ready</b></span>
 </header>
@@ -241,6 +255,10 @@
         <div class="step" id="s-editing"><div class="ic">4</div><div><div class="t">Edit clips <em></em></div><div class="m">Waiting</div><div class="bar"><i></i></div></div></div>
       </div>
       <div class="banner" id="banner"></div>
+      <div class="fixrow" id="fixRow" hidden>
+        <button class="btn primary" id="openFix">Fix YouTube access</button>
+        <button class="btn" id="useMine">Use my videos instead</button>
+      </div>
       <details><summary>Show details</summary><div id="log"></div></details>
     </section>
 
@@ -286,6 +304,24 @@
     </div>
   </div>
 </dialog>
+<dialog id="yt">
+  <button class="x" id="ytClose" aria-label="Close">×</button>
+  <h3>Fix YouTube access</h3>
+  <div class="hint">YouTube sometimes stops downloads from a connection until it sees you're signed in. Pick one - you only do this once.</div>
+  <div class="opt"><b>Easiest - with Firefox</b>
+    <ol><li>Open Firefox, go to <b style="display:inline">youtube.com</b> and sign in.</li>
+    <li>Come back here and press <b style="display:inline">Get clips</b> again. AI Clipper uses that login automatically.</li></ol></div>
+  <div class="opt"><b>With Chrome or Edge</b>
+    <ol><li>Add the free extension <b style="display:inline">"Get cookies.txt LOCALLY"</b> to your browser.</li>
+    <li>Open youtube.com (signed in), click the extension and choose <b style="display:inline">Export</b>.</li>
+    <li>Drop the downloaded file here:</li></ol>
+    <label class="drop" id="drop">Drop cookies.txt here, or click to choose it<input type="file" id="ytFile" accept=".txt" hidden></label>
+  </div>
+  <div class="status" id="ytStatus"></div>
+  <div class="fixrow"><button class="btn" id="ytForget" hidden>Forget saved login</button></div>
+  <div class="hint" style="margin-top:12px">Your login stays on this PC (data\youtube_cookies.txt) and is only used to download from YouTube.
+  Don't share that file with anyone.</div>
+</dialog>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -326,6 +362,7 @@ async function loadStatus() {
     $("where").textContent = "Saved in " + st.output_dir;
   }
   renderLevels();
+  renderYt(st.youtube_login);
   $("mode").innerHTML = st.keys.anthropic ? "<b>Claude</b>&nbsp;AI judge on" : "Free mode · <b>no keys needed</b>";
   setRunning(st.running);
   renderTrend(st.trends);
@@ -397,7 +434,7 @@ async function loadUploads() {
 // ---------------- progress ----------------
 const ORDER = ["trends", "discovery", "analysis", "editing"];
 function resetSteps(mine) {
-  $("progress").hidden = false; $("banner").className = "banner"; $("log").innerHTML = "";
+  $("progress").hidden = false; $("banner").className = "banner"; $("log").innerHTML = ""; $("fixRow").hidden = true;
   $("runTitle").textContent = "Working on it";
   ORDER.forEach((s) => { const el = $("s-" + s); el.className = "step"; el.querySelector(".m").textContent = "Waiting"; el.querySelector(".bar i").style.width = "0"; el.querySelector("em").textContent = ""; });
   if (mine) ["trends", "discovery"].forEach((s) => { const el = $("s-" + s); el.classList.add("done"); el.querySelector(".m").textContent = "Skipped - using your videos"; el.querySelector(".ic").textContent = "✓"; });
@@ -437,6 +474,9 @@ function handle(ev, live) {
     const act = document.querySelector(".step.active") || $("s-analysis");
     act.classList.add("fail"); act.classList.remove("active"); act.querySelector(".ic").textContent = "!";
     $("banner").className = "banner err"; $("banner").textContent = ev.message; $("runTitle").textContent = "Stopped";
+    const bot = /not a bot|YouTube access|YouTube login/i.test(ev.message);
+    $("fixRow").hidden = !bot;
+    if (bot && live) openYt();
     setRunning(false);
   }
   if (ev.kind === "done") {
@@ -450,6 +490,30 @@ function listen() {
   let replay = true; setTimeout(() => { replay = false; }, 1500);
   es.onmessage = (m) => handle(JSON.parse(m.data), !replay);
 }
+
+// ---------------- YouTube login ----------------
+function renderYt(l) {
+  if (!l) return;
+  $("ytChip").innerHTML = l.signed_in ? `<span class="dot"></span>YouTube: <b>signed in</b>` : "YouTube login";
+  $("ytStatus").innerHTML = l.signed_in ? `<span style="color:var(--good)">✓ Using your YouTube login (${esc(l.source)}).</span>` : "";
+  $("ytForget").hidden = !(l.signed_in && l.source === "cookies.txt");
+}
+function openYt() { if (!$("yt").open) $("yt").showModal(); }
+$("ytChip").onclick = openYt; $("openFix").onclick = openYt;
+$("ytClose").onclick = () => $("yt").close();
+$("useMine").onclick = () => { document.querySelector(".seg button[data-src=mine]").click(); $("create").scrollIntoView({behavior: "smooth"}); };
+async function uploadCookies(file) {
+  const text = await file.text();
+  const r = await fetch("/api/youtube-login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+  const d = await r.json();
+  if (!r.ok) { $("ytStatus").innerHTML = `<span style="color:var(--bad)">${esc(d.detail)}</span>`; return; }
+  renderYt(d); toast("YouTube login saved"); $("ytStatus").innerHTML += " Press the button again to continue.";
+}
+$("ytFile").onchange = (e) => e.target.files[0] && uploadCookies(e.target.files[0]);
+$("drop").ondragover = (e) => { e.preventDefault(); $("drop").classList.add("over"); };
+$("drop").ondragleave = () => $("drop").classList.remove("over");
+$("drop").ondrop = (e) => { e.preventDefault(); $("drop").classList.remove("over"); if (e.dataTransfer.files[0]) uploadCookies(e.dataTransfer.files[0]); };
+$("ytForget").onclick = async () => { renderYt(await (await fetch("/api/youtube-login", {method: "DELETE"})).json()); toast("Saved login removed"); };
 
 // ---------------- controls ----------------
 document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {

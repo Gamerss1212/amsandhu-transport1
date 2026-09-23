@@ -26,9 +26,11 @@ YOUR CLIPS
   the "output" folder next to AIClipper.exe (video + thumbnail + ready-to-post caption).
 
 IF YOUTUBE SAYS "CONFIRM YOU'RE NOT A BOT"
-- Open YouTube in Firefox, Edge or Chrome on this PC and make sure you're signed in.
-  AI Clipper uses that login automatically. If it still fails, close the browser
-  completely and try again (Chrome/Edge lock their login file while open; Firefox doesn't).
+YouTube sometimes stops downloads from a connection until it sees you're signed in. Fix it once:
+- Easiest: open Firefox, sign in at youtube.com, then press the button in AI Clipper again.
+- Chrome/Edge: click "Fix YouTube access" in the app (or "YouTube login" at the top) and follow the
+  3 steps to upload your cookies.txt (free "Get cookies.txt LOCALLY" extension -> Export).
+- Or choose "Use my videos" and paste video files you already downloaded - no YouTube needed.
 
 OTHER FILES (next to AIClipper.exe)
   config.yaml   settings: channels to watch, search topics, strictness, clip length

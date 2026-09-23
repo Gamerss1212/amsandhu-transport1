@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .. import ytdl
 from ..config import Config
 from ..discovery import poll_watchlist
 from ..editing import LEVEL_NAMES
@@ -37,6 +38,10 @@ LEVEL_INFO = {
 class RunRequest(BaseModel):
     level: str | None = None
     clips: int | None = None
+
+
+class CookiesRequest(BaseModel):
+    text: str
 
 
 class ClipRequest(BaseModel):
@@ -82,6 +87,7 @@ def create_app(cfg: Config) -> FastAPI:
             "default_clips": cfg["editing"].get("clips_per_run", 5),
             "min_videos": cfg["trends"]["min_videos"],
             "output_dir": str(out_dir.resolve()),
+            "youtube_login": ytdl.login_status(),
             "keys": {"anthropic": bool(cfg.anthropic_key), "youtube": bool(cfg.youtube_key),
                      "apify": bool(cfg.apify_token)},
             "watch_channels": len(cfg["discovery"]["watch_channels"]),
@@ -128,6 +134,23 @@ def create_app(cfg: Config) -> FastAPI:
 
         threading.Thread(target=job, daemon=True, name="pipeline").start()
         return {"started": True, "level": level}
+
+    @app.get("/api/youtube-login")
+    def youtube_login() -> dict:
+        return ytdl.login_status()
+
+    @app.post("/api/youtube-login")
+    def youtube_login_upload(req: CookiesRequest) -> dict:
+        try:
+            n = ytdl.save_cookies(req.text)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {**ytdl.login_status(), "cookies": n}
+
+    @app.delete("/api/youtube-login")
+    def youtube_login_forget() -> dict:
+        ytdl.forget_cookies()
+        return ytdl.login_status()
 
     @app.get("/api/events")
     async def events(request: Request, since: int = 0) -> StreamingResponse:

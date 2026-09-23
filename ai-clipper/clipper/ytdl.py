@@ -4,15 +4,22 @@ from __future__ import annotations
 import os
 import shutil
 from functools import lru_cache
+from pathlib import Path
 
 from .config import BUNDLE
 
 _cookies: dict = {}
 _configured_login = False
+# Firefox first: on Windows, Chrome and Edge encrypt their cookies so other programs usually can't read them
 BROWSERS = ("firefox", "edge", "chrome", "brave", "opera", "vivaldi", "chromium", "safari")
-BOT_HINT = ("YouTube is asking to confirm you're not a bot. Open YouTube in your web browser (Firefox, Edge "
-            "or Chrome) on this PC, make sure you are signed in, then try again. If it keeps happening, close "
-            "the browser completely first, or set analysis.cookies_from_browser in config.yaml.")
+BOT_HINT = ("YouTube is blocking downloads from this internet connection (\"confirm you're not a bot\"). "
+            "Fix it once: sign in to YouTube in Firefox and press the button again - or use \"Fix YouTube access\" "
+            "in the app to upload your YouTube cookies.txt. You can also choose \"Use my videos\" and paste video "
+            "files you already downloaded.")
+EXPIRED_HINT = ("YouTube still asks to confirm you're not a bot even with your saved YouTube login - it has probably "
+                "expired. Export a fresh cookies.txt from a browser where you're signed in to YouTube and upload it "
+                "again under \"Fix YouTube access\".")
+_cookie_file: Path | None = None
 
 
 class Silent:
@@ -37,14 +44,53 @@ def deno_path() -> str | None:
 
 
 def configure(cfg) -> None:
-    """Remember the browser-login settings so every YouTube request can use them."""
-    global _configured_login
+    """Remember the YouTube login to use: config settings first, then a cookies.txt you uploaded in the app."""
+    global _configured_login, _cookie_file
     a = cfg["analysis"]
+    _cookie_file = cfg.path("paths.db").parent / "youtube_cookies.txt"
     _cookies.clear()
     if a.get("cookies_from_browser"):
         _cookies["cookiesfrombrowser"] = (a["cookies_from_browser"],)
     if a.get("cookies_file"):
         _cookies["cookiefile"] = a["cookies_file"]
+    elif _cookie_file.exists():
+        _cookies["cookiefile"] = str(_cookie_file)
+    _configured_login = bool(_cookies)
+
+
+def login_status() -> dict:
+    if "cookiefile" in _cookies:
+        return {"signed_in": True, "source": "cookies.txt"}
+    if "cookiesfrombrowser" in _cookies:
+        return {"signed_in": True, "source": _cookies["cookiesfrombrowser"][0]}
+    return {"signed_in": False, "source": None}
+
+
+def save_cookies(text: str) -> int:
+    """Stores an uploaded cookies.txt (Netscape format) and starts using it. Returns the YouTube cookie count."""
+    global _configured_login
+    lines = [ln for ln in text.replace("\r", "").split("\n") if ln.strip()]
+    yt = [ln for ln in lines if not ln.startswith("#") and ln.count("\t") >= 6
+          and ("youtube.com" in ln.split("\t")[0] or "google.com" in ln.split("\t")[0])]
+    if not yt:
+        raise ValueError("That file has no YouTube cookies. Export cookies.txt while you're on youtube.com "
+                         "and signed in.")
+    if _cookie_file is None:
+        raise RuntimeError("settings not loaded")
+    _cookie_file.parent.mkdir(parents=True, exist_ok=True)
+    _cookie_file.write_text("# Netscape HTTP Cookie File\n" + "\n".join(ln for ln in lines if not ln.startswith("# Netscape")) + "\n",
+                            encoding="utf-8")
+    _cookies.clear()
+    _cookies["cookiefile"] = str(_cookie_file)
+    _configured_login = True
+    return len(yt)
+
+
+def forget_cookies() -> None:
+    global _configured_login
+    if _cookie_file and _cookie_file.exists():
+        _cookie_file.unlink()
+    _cookies.pop("cookiefile", None)
     _configured_login = bool(_cookies)
 
 
@@ -67,7 +113,7 @@ def with_login_fallback(fn, log=None):
         if not is_bot_check(exc):
             raise
         if _configured_login:
-            raise BotCheck(BOT_HINT) from exc
+            raise BotCheck(EXPIRED_HINT) from exc
         first = exc
     for browser in BROWSERS:
         _cookies.clear()

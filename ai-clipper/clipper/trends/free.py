@@ -42,6 +42,7 @@ def list_source(url: str, limit: int) -> list[dict]:
 
 
 def details(url: str) -> dict | None:
+    time.sleep(0.4)  # a gentle, steady rate instead of a burst of requests
     with _ydl() as y:
         return y.extract_info(url, download=False)
 
@@ -86,7 +87,7 @@ def collect_free(fcfg: dict, known: set[str], progress=None, log=None) -> list[d
     """Returns normalized short videos. Videos already in `known` are not re-fetched."""
     progress = progress or (lambda f, m="": None)
     log = log or (lambda m: None)
-    workers = int(fcfg.get("workers", 8))
+    workers = int(fcfg.get("workers", 3))
     srcs = sources(fcfg)
     listed: dict[tuple[str, str], dict] = {}
     failed_platforms: dict[str, int] = {}
@@ -108,7 +109,12 @@ def collect_free(fcfg: dict, known: set[str], progress=None, log=None) -> list[d
         log(f"{n} {platform} source(s) returned nothing" +
             (" - TikTok often blocks free access; YouTube Shorts is used instead" if platform == "tiktok" else ""))
 
-    new = [(p, vid, e) for (p, vid), e in listed.items() if vid not in known][: int(fcfg.get("max_new", 1500))]
+    new = [(p, vid, e) for (p, vid), e in listed.items() if vid not in known]
+    # only a sample gets the (one request per video) detail check - hammering YouTube with hundreds of page
+    # loads makes it block this connection, and then the long-video downloads fail too
+    detail_n = int(fcfg.get("max_details", 120))
+    rest = [(p, vid, e) for p, vid, e in new[detail_n:]]
+    new = new[:detail_n]
     log(f"{len(listed)} short videos listed, {len(new)} new to check in detail")
     out: list[dict] = []
     deadline = time.time() + float(fcfg.get("max_detail_minutes", 8)) * 60
@@ -131,7 +137,7 @@ def collect_free(fcfg: dict, known: set[str], progress=None, log=None) -> list[d
             stop = None
             if time.time() > deadline:
                 stop = f"Detail time limit reached after {done} videos"
-            elif misses >= 20:
+            elif misses >= 6:
                 stop = ("YouTube is limiting detail requests (set analysis.cookies_from_browser in "
                         "config.yaml to avoid this)")
             if stop:
@@ -139,5 +145,5 @@ def collect_free(fcfg: dict, known: set[str], progress=None, log=None) -> list[d
                 ex.shutdown(wait=False, cancel_futures=True)
                 break
         checked = {v["video_id"] for v in out}
-        out += [v for p, vid, e in new if vid not in checked and (v := to_short(e, p))]
+        out += [v for p, vid, e in new + rest if vid not in checked and (v := to_short(e, p))]
     return out

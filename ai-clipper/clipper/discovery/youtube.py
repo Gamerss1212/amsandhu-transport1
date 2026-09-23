@@ -178,7 +178,7 @@ def ytdlp_search(query: str, limit: int, within_days: float | None = None, long_
     return out
 
 
-def ytdlp_enrich(cands: list[dict], workers: int = 4) -> None:
+def ytdlp_enrich(cands: list[dict], workers: int = 2) -> None:
     """Fills real upload date, likes, comments and subscriber count (in place) without an API key."""
 
     def one(c: dict) -> None:

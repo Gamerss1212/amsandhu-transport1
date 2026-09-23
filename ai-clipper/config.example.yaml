@@ -36,8 +36,9 @@ trends:
     # videos are analyzed too.
     tiktok_creators: []
     per_source: 120            # newest Shorts taken from each source
-    workers: 8                 # parallel requests
-    max_detail_minutes: 8      # time budget for reading likes/comments/dates (new videos only)
+    workers: 3                 # parallel requests (keep low: too many makes YouTube block downloads)
+    max_details: 120           # new videos per run whose likes/comments/date are read (one request each)
+    max_detail_minutes: 4      # time budget for those detail reads
   # Also load any .json / .csv exports dropped in this folder (any source works).
   import_dir: data/trend_imports
 

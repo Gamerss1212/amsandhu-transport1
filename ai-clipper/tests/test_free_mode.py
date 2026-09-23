@@ -139,6 +139,7 @@ def test_login_fallback(monkeypatch):
     from clipper import ytdl
 
     monkeypatch.setattr(ytdl, "_configured_login", False)
+    monkeypatch.setattr(ytdl, "_cookies", {})  # independent of any login saved on this machine
     calls = []
 
     def fn():
@@ -150,7 +151,7 @@ def test_login_fallback(monkeypatch):
     assert ytdl.with_login_fallback(fn) == "ok"
     assert calls[0] == {} and ytdl._cookies == {"cookiesfrombrowser": ("edge",)}
     ytdl._cookies.clear()
-    with pytest.raises(ytdl.BotCheck, match="signed in"):
+    with pytest.raises(ytdl.BotCheck, match="Fix YouTube access"):
         ytdl.with_login_fallback(lambda: (_ for _ in ()).throw(RuntimeError("HTTP Error 429")))
     with pytest.raises(ValueError):
         ytdl.with_login_fallback(lambda: (_ for _ in ()).throw(ValueError("other problem")))
@@ -258,3 +259,25 @@ def test_pasted_videos_are_all_considered(cfg, tmp_path, monkeypatch):
     pipe.clip_video(f"{a}\n{b}", "simple", clips=1)  # 1 clip wanted, but both videos must be watched
     watched = [e.message for e in pipe.rep.history if "strong clip" in e.message or "Nothing in this video" in e.message]
     assert len(watched) == 2
+
+
+def test_youtube_login_upload(cfg):
+    from fastapi.testclient import TestClient
+
+    from clipper import ytdl
+    from clipper.web.app import create_app
+
+    ytdl.configure(cfg)
+    client = TestClient(create_app(cfg))
+    assert client.get("/api/youtube-login").json()["signed_in"] is False
+    bad = client.post("/api/youtube-login", json={"text": "# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tTRUE\t0\ta\tb\n"})
+    assert bad.status_code == 400 and "no YouTube cookies" in bad.json()["detail"]
+    good = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1999999999\tSID\tabc\n" \
+           ".youtube.com\tTRUE\t/\tTRUE\t1999999999\tHSID\tdef\n"
+    r = client.post("/api/youtube-login", json={"text": good}).json()
+    assert r == {"signed_in": True, "source": "cookies.txt", "cookies": 2}
+    assert ytdl.options()["cookiefile"].endswith("youtube_cookies.txt")
+    ytdl.configure(cfg)  # a restart picks the saved file up again
+    assert ytdl.login_status()["signed_in"]
+    assert client.delete("/api/youtube-login").json()["signed_in"] is False
+    assert "cookiefile" not in ytdl.options()
