@@ -25,9 +25,11 @@ def main() -> None:
     serve.add_argument("--port", type=int, default=8000)
     run = sub.add_parser("run", help="run the pipeline once")
     run.add_argument("--level", choices=LEVEL_NAMES)
-    clip = sub.add_parser("clip", help="clip one video: a YouTube/other link or a video file")
-    clip.add_argument("source")
+    run.add_argument("--clips", type=int, help="how many clips you want (from as many videos as needed)")
+    clip = sub.add_parser("clip", help="clip videos you choose: links or video files")
+    clip.add_argument("source", nargs="+")
     clip.add_argument("--level", choices=LEVEL_NAMES)
+    clip.add_argument("--clips", type=int)
     watch = sub.add_parser("watch", help="poll watched channels for new uploads")
     watch.add_argument("--auto-clip", action="store_true", help="run the pipeline when a new upload appears")
     watch.add_argument("--level", choices=LEVEL_NAMES)
@@ -51,7 +53,8 @@ def main() -> None:
 
         pipe = Pipeline(cfg)
         try:
-            clips = pipe.run(args.level) if cmd == "run" else pipe.clip_video(args.source, args.level)
+            clips = pipe.run(args.level, args.clips) if cmd == "run" else \
+                pipe.clip_video("\n".join(args.source), args.level, args.clips)
         except RuntimeError as exc:  # already explained in the log; no traceback needed
             raise SystemExit(f"\nStopped: {exc}") from None
         for c in clips:

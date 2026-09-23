@@ -20,6 +20,18 @@ from .trends import run_trend_analysis
 from .ytdl import BotCheck
 
 
+def split_sources(text: str) -> list[str]:
+    """Links and file paths, one per line (several links on one line are fine; paths may contain spaces)."""
+    out: list[str] = []
+    for line in text.replace("\r", "\n").split("\n"):
+        line = line.strip().strip('"').strip("'").strip()
+        if not line:
+            continue
+        urls = re.findall(r"https?://\S+", line)
+        out += urls if len(urls) > 1 else [line]
+    return list(dict.fromkeys(out))
+
+
 def slug(text: str, n: int = 40) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:n] or "clip"
 
@@ -39,21 +51,24 @@ class Pipeline:
             return None
         return Claude(self.cfg["llm"]["model"], self.cfg["llm"]["effort"])
 
-    def run(self, level: str | None = None) -> list[dict]:
+    def run(self, level: str | None = None, clips: int | None = None) -> list[dict]:
         """Everything that happens after pressing "Get clips"."""
-        return self._guarded(level, None)
+        return self._guarded(level, [], clips)
 
-    def clip_video(self, source: str, level: str | None = None) -> list[dict]:
-        """Clip one video you choose: a YouTube link, any other video link, or a video file."""
-        return self._guarded(level, source.strip().strip('"'))
+    def clip_video(self, source: str, level: str | None = None, clips: int | None = None) -> list[dict]:
+        """Clip videos you choose: one or more links (any site yt-dlp supports) or video files."""
+        sources = split_sources(source)
+        if not sources:
+            raise ValueError("Paste a video link or a file path")
+        return self._guarded(level, sources, clips)
 
-    def _guarded(self, level: str | None, source: str | None) -> list[dict]:
+    def _guarded(self, level: str | None, sources: list[str], clips: int | None) -> list[dict]:
         if not self.lock.acquire(blocking=False):
             raise RuntimeError("A run is already in progress")
         self.running = True
         started = time.time()
         try:
-            produced = self._run(level, source)
+            produced = self._run(level, sources, clips)
             minutes = (time.time() - started) / 60
             self.rep.emit(Event("done", "editing", f"Finished: {len(produced)} clips in {minutes:.1f} min",
                                 data={"clips": produced}))
@@ -65,34 +80,37 @@ class Pipeline:
             self.running = False
             self.lock.release()
 
-    def _run(self, level: str | None, source: str | None) -> list[dict]:
+    def _run(self, level: str | None, sources: list[str], want: int | None) -> list[dict]:
         level = level or self.cfg["editing"]["default_level"]
         preset = get_preset(level)
+        want = max(1, min(50, int(want or self.cfg["editing"].get("clips_per_run", 5))))
         rep = self.rep
 
-        if source:
+        if sources:
             profile = self.db.latest_profile()
-            rep.info("analysis", "Clipping the video you chose" +
+            rep.info("analysis", f"Clipping {len(sources)} video{'s' if len(sources) > 1 else ''} you chose" +
                      (" (using the latest trend analysis)" if profile else ""))
-            candidates = [{"video_id": source_key(source), "input": source, "title": "", "channel": ""}]
-            wanted = 1
+            candidates = [{"video_id": source_key(s), "input": s, "title": "", "channel": ""} for s in sources]
+            max_videos = len(candidates)
         else:
             # ---- Step 1: what goes viral right now (fresh every run)
-            rep.info("trends", "Step 1/3 - analyzing 1000+ short-form videos for what goes viral")
+            rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
+                               "for what goes viral right now")
             profile = run_trend_analysis(self.cfg, self.db, rep)
             # ---- Step 2: find long-form videos and watch them fully
             rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
             candidates = discover(self.cfg, self.db, rep, profile)
             if not candidates:
                 raise RuntimeError("No suitable long-form videos found - widen discovery settings")
-            wanted = self.cfg["discovery"]["videos_per_run"]
+            max_videos = max(1, int(self.cfg["discovery"].get("max_videos_per_run", 8)))
 
         llm = self._llm()
         yt = YouTubeAPI(self.cfg.youtube_key) if self.cfg.youtube_key else None
-        produced: list[dict] = []
-        done = blocked = 0
-        for cand in candidates[: wanted * 3]:
-            if done >= wanted:
+        rep.info("analysis", f"Goal: the {want} best clip{'s' if want > 1 else ''}, from as many videos as it takes")
+        pool: list[tuple] = []  # (clip, analysis result) from every video watched
+        analyzed = blocked = 0
+        for cand in candidates:
+            if len(pool) >= want or analyzed >= max_videos:
                 break
             rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
                      if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
@@ -101,27 +119,44 @@ class Pipeline:
             except BotCheck as exc:
                 blocked += 1
                 rep.error("analysis", str(exc))
-                if blocked >= 2 or source:
+                if blocked >= 2 or len(candidates) == 1:
                     raise RuntimeError(str(exc)) from exc
                 continue
             except Exception as exc:
-                rep.error("analysis", f"Skipping {cand['video_id']}: {exc}")
-                if source:
+                rep.error("analysis", f"Skipping {cand.get('input') or cand['video_id']}: {exc}")
+                if len(candidates) == 1:
                     raise
-                self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
+                if not sources:
+                    self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
                 continue
-            if not result["clips"]:
-                rep.info("analysis", "Nothing in this video passed the strict review" +
-                         ("" if source else " - trying the next one"))
-                self.db.mark_processed(cand["video_id"], result["meta"]["title"], "no_clips")
-                continue
+            analyzed += 1
+            found = result["clips"]
+            self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done" if found else "no_clips",
+                                   len(found))
+            pool += [(c, result) for c in found]
+            rep.info("analysis", (f"{len(found)} strong clip{'s' if len(found) != 1 else ''} in this video - "
+                                  if found else "Nothing in this video passed the strict review - ") +
+                     f"{min(len(pool), want)}/{want} collected")
 
-            # ---- Step 3: edit
-            rep.info("editing", f"Step 3/3 - editing {len(result['clips'])} clips at level '{preset.name}'")
-            clips = self._edit(result, preset)
-            produced += clips
-            self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done", len(clips))
-            done += 1
+        if not pool:
+            raise RuntimeError(f"No clip passed the strict review in the {analyzed} video(s) watched. "
+                               "Try again later, choose other videos, or lower analysis.local_content_threshold.")
+        if len(pool) < want:
+            rep.info("analysis", f"Only {len(pool)} clip(s) passed the strict review - editing those")
+        best = sorted(pool, key=lambda cr: -cr[0].final_score)[:want]
+
+        # ---- Step 3: edit the best clips, whichever videos they came from
+        rep.info("editing", f"Step 3/3 - editing {len(best)} clip{'s' if len(best) > 1 else ''} "
+                            f"from {len({id(r) for _, r in best})} video(s) at level '{preset.name}'")
+        produced: list[dict] = []
+        order, seen = [], set()  # videos in the order of their best clip
+        for _, r in best:
+            if id(r) not in seen:
+                seen.add(id(r))
+                order.append(r)
+        for result in order:
+            chosen = [c for c, r in best if r is result]
+            produced += self._edit({**result, "clips": chosen}, preset)
         return produced
 
     def _edit(self, result: dict, preset) -> list[dict]:

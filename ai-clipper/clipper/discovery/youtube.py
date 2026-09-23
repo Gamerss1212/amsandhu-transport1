@@ -295,7 +295,7 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
         # the listing has no dates/likes: read them for the most promising videos
         lo_s = d["min_duration_minutes"] * 60
         pool = sorted((c for c in cands.values() if c["duration"] >= lo_s and not db.is_processed(c["video_id"])),
-                      key=lambda c: -c["views"])[: max(12, 4 * d["videos_per_run"])]
+                      key=lambda c: -c["views"])[: max(12, 2 * d.get("max_videos_per_run", 8))]
         rep.progress("discovery", 0.7, f"Checking upload dates and engagement for {len(pool)} videos...")
         ytdlp_enrich(pool)
         for c in cands.values():

@@ -31,11 +31,13 @@ LEVEL_INFO = {
 
 class RunRequest(BaseModel):
     level: str | None = None
+    clips: int | None = None
 
 
 class ClipRequest(BaseModel):
     source: str
     level: str | None = None
+    clips: int | None = None
 
 
 def create_app(cfg: Config) -> FastAPI:
@@ -92,7 +94,7 @@ def create_app(cfg: Config) -> FastAPI:
 
         def job() -> None:
             try:
-                pipe.run(level)
+                pipe.run(level, req.clips)
             except Exception:
                 pass  # already reported as an error event
 
@@ -111,7 +113,7 @@ def create_app(cfg: Config) -> FastAPI:
 
         def job() -> None:
             try:
-                pipe.clip_video(req.source, level)
+                pipe.clip_video(req.source, level, req.clips)
             except Exception:
                 pass  # already reported as an error event
 

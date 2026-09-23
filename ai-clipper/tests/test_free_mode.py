@@ -114,7 +114,7 @@ def test_full_run_without_keys(cfg, monkeypatch):
     monkeypatch.setattr(pipeline_mod, "discover", lambda *a, **k: [cand])
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
-    cfg["discovery"]["videos_per_run"] = 1
+    cfg["discovery"]["max_videos_per_run"] = 1
 
     clips = Pipeline(cfg).run("simple")
 
@@ -201,3 +201,48 @@ def test_news_broadcasts_are_skipped(cfg, monkeypatch):
     monkeypatch.setattr(youtube, "ytdlp_enrich", lambda cands: None)
     ranked = youtube.discover(cfg, Database(cfg.path("paths.db")), Reporter(), None)
     assert [c["video_id"] for c in ranked] == ["b" * 11]
+
+
+def test_split_sources():
+    from clipper.pipeline import split_sources
+
+    text = ('https://youtu.be/aaaaaaaaaaa https://youtu.be/bbbbbbbbbbb\n'
+            '"C:\\Users\\me\\Videos\\My Podcast.mp4"\n\n https://youtu.be/aaaaaaaaaaa ')
+    assert split_sources(text) == ["https://youtu.be/aaaaaaaaaaa", "https://youtu.be/bbbbbbbbbbb",
+                                   "C:\\Users\\me\\Videos\\My Podcast.mp4"]
+
+
+STRONG_B = ("Nobody believed me when I said I would quit my job. I had twenty thousand dollars of debt and I was "
+            "terrified. My boss laughed at me and said I would be broke in a month. Six months later I made my first "
+            "million dollars. That's why you should never listen to people who never tried anything. ")
+
+
+def _video_with(tmp_path, cfg, name, text):
+    from clipper.analysis.download import source_key
+
+    words = make_words(text)
+    t = {"words": words, "segments": group_segments(words)}
+    duration = words[-1]["e"] + 2
+    src = tmp_path / name
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"testsrc2=s=640x360:r=30:d={duration}", "-f", "lavfi", "-i", f"sine=f=200:d={duration}",
+                    "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", str(src)], check=True)
+    work = cfg.path("paths.work_dir") / source_key(str(src))
+    work.mkdir(parents=True)
+    (work / "transcript.json").write_text(json.dumps({"source": "test", **t}))
+    return src
+
+
+def test_clips_are_pooled_across_videos(cfg, tmp_path, monkeypatch):
+    a = _video_with(tmp_path, cfg, "a.mp4", TEXT)
+    b = _video_with(tmp_path, cfg, "b.mp4", DULL + STRONG_B + DULL)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
+
+    clips = Pipeline(cfg).clip_video(f"{a}\n{b}", "simple", clips=2)
+
+    assert len(clips) == 2
+    assert len({c["folder"] for c in clips}) == 2  # one from each video
+    titles = " ".join(c["title"] for c in clips)
+    assert "Nobody talks about the day" in titles
+    assert "Nobody believed me" in titles or "twenty thousand dollars" in titles

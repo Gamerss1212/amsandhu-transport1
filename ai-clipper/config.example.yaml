@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------- Step 1
 trends:
   # The run stops if fewer than this many short-form videos were analyzed.
-  min_videos: 1000
+  min_videos: 350
   # Paid, optional (needs APIFY_TOKEN): fresh TikTok/Instagram videos per platform per run.
   fetch_per_platform: 600
   # Only videos from the last N days count toward the analysis.
@@ -57,7 +57,7 @@ discovery:
   max_duration_minutes: 240
   published_within_days: 14
   min_views: 100000
-  videos_per_run: 2              # how many long videos to fully analyze per click
+  max_videos_per_run: 8          # most long videos to watch per click while collecting your clips
   watch_interval_minutes: 10     # real-time RSS polling interval for the web app
 
 analysis:
@@ -93,6 +93,7 @@ analysis:
 # ---------------------------------------------------------------- Step 3
 editing:
   default_level: professional    # simple | normal | hard | professional | extreme
+  clips_per_run: 5               # how many finished clips you want per click (they can come from different videos)
   width: 1080
   height: 1920
   fps: 30

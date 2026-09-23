@@ -32,7 +32,7 @@ def test_full_run(cfg, monkeypatch):
             "views": 1e6, "published": 0, "source": "search"}
     monkeypatch.setattr(pipeline_mod, "discover", lambda *a, **k: [cand])
     cfg["analysis"].update(judge_with_frames=False, chunk_minutes=100, min_clip_seconds=10, use_comments=False)
-    cfg["discovery"]["videos_per_run"] = 1
+    cfg["discovery"]["max_videos_per_run"] = 1
     pipe = Pipeline(cfg)
     monkeypatch.setattr(pipe, "_llm", lambda: FakeLLM(group_segments(words)))
 
