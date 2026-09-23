@@ -1,0 +1,21 @@
+AI CLIPPER - WINDOWS
+
+1. Unzip this folder somewhere permanent (e.g. Documents\AIClipper). Don't run it from inside the zip.
+2. Double-click AIClipper.exe.
+   If Windows says "Windows protected your PC", click "More info" -> "Run anyway".
+   (This appears because the app isn't code-signed.)
+3. The first time, Notepad opens a file called .env. Paste your keys after the = signs, save, close Notepad:
+     ANTHROPIC_API_KEY  - required  - https://console.anthropic.com
+     APIFY_TOKEN        - TikTok/Instagram trend data - https://apify.com
+     YOUTUBE_API_KEY    - recommended - Google Cloud Console, YouTube Data API v3
+4. Your browser opens AI Clipper. Pick an editing level and press GET CLIPS.
+   Keep the black window open while it runs - closing it quits the app.
+
+Your files (all next to AIClipper.exe):
+  output\       finished clips (.mp4 + thumbnail + caption .txt)
+  config.yaml   settings: channels to watch, search topics, strictness
+  .env          your API keys
+  assets\       optional music, sound effects, b-roll and fonts for pro/extreme levels
+
+Check your setup: open a Command Prompt in this folder and run  AIClipper.exe doctor
+If YouTube says "confirm you're not a bot": in config.yaml set  cookies_from_browser: chrome

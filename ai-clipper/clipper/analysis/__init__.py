@@ -51,6 +51,6 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         log=lambda m: rep.info("analysis", m))
     (video.parent / "analysis.json").write_text(json.dumps(
         {"meta": {k: meta[k] for k in ("id", "title", "channel", "duration") if k in meta},
-         "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2))
+         "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2), encoding="utf-8")
     rep.progress("analysis", 1.0, f"{len(approved)} clips approved")
     return {"video": video, "meta": meta, "transcript": transcript, "signals": signals, "clips": approved}

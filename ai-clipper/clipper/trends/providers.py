@@ -182,10 +182,10 @@ def load_imports(folder: Path) -> list[dict]:
     for path in sorted(folder.iterdir()):
         items: Iterable[dict] = []
         if path.suffix == ".json":
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             items = data if isinstance(data, list) else data.get("items", [])
         elif path.suffix == ".jsonl":
-            items = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            items = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         elif path.suffix == ".csv":
             with path.open(newline="", encoding="utf-8") as f:
                 items = list(csv.DictReader(f))

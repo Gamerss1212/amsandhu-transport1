@@ -46,7 +46,7 @@ def _whisper(wav: Path, model_size: str, device: str) -> dict:
 
 
 def parse_json3(path: Path) -> dict:
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     words: list[dict] = []
     for ev in data.get("events", []):
         start = ev.get("tStartMs", 0) / 1000
@@ -68,7 +68,7 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
                captions: Path | None = None, log=None) -> dict:
     cache = video.parent / "transcript.json"
     if cache.exists():
-        return json.loads(cache.read_text())
+        return json.loads(cache.read_text(encoding="utf-8"))
     result = None
     try:
         wav = extract_audio(video, video.parent / "audio16k.wav")
@@ -83,5 +83,5 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
         result = parse_json3(captions)
     if not result or not result["words"]:
         raise RuntimeError("No transcript available (install faster-whisper or use a video with captions)")
-    cache.write_text(json.dumps(result))
+    cache.write_text(json.dumps(result), encoding="utf-8")
     return result

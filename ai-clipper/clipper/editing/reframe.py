@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import requests
 
+from ..config import ROOT
+
 
 @dataclass
 class Track:
@@ -25,7 +27,7 @@ MODEL_URLS = (
     "face_detection_yunet_2023mar.onnx",
     "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
 )
-MODEL_PATH = Path(__file__).resolve().parents[2] / "data" / "models" / "face_detection_yunet_2023mar.onnx"
+MODEL_PATH = ROOT / "data" / "models" / "face_detection_yunet_2023mar.onnx"
 
 
 def _yunet_model() -> Path | None:

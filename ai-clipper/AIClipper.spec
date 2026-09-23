@@ -1,0 +1,15 @@
+# PyInstaller recipe: pyinstaller AIClipper.spec  ->  dist/AIClipper/AIClipper(.exe)
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+
+datas = [("config.example.yaml", "."), (".env.example", "."),
+         ("clipper/web/templates", "clipper/web/templates")]
+for pkg in ("faster_whisper", "imageio_ffmpeg"):  # whisper VAD model, bundled ffmpeg
+    datas += collect_data_files(pkg)
+binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
+hiddenimports = collect_submodules("clipper") + collect_submodules("uvicorn")
+
+a = Analysis(["launcher.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hiddenimports,
+             excludes=["pytest", "tkinter", "matplotlib", "IPython", "torch"], noarchive=False)
+pyz = PYZ(a.pure)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="AIClipper", console=True, upx=False)
+coll = COLLECT(exe, a.binaries, a.datas, name="AIClipper", upx=False)

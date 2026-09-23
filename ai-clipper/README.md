@@ -36,7 +36,16 @@ Each clip comes with a thumbnail and a ready-to-paste caption with hashtags and 
 
 ---
 
-## Setup (about 10 minutes)
+## Windows: just download and run
+
+Download **AIClipper-Windows.zip** from this repository's Releases page (release "AI Clipper for Windows"),
+unzip it, and double-click **AIClipper.exe**. No Python needed. On first launch it asks for your API keys
+in Notepad and then opens the app in your browser. `START HERE.txt` in the zip has the details.
+
+The exe is rebuilt automatically by GitHub Actions (`.github/workflows/build-windows.yml`) whenever the code changes.
+To build it yourself on Windows: `pip install -r requirements.txt pyinstaller` then `pyinstaller AIClipper.spec`.
+
+## Setup from source (about 10 minutes)
 
 1. **Install Python 3.10+** from https://python.org. On Windows, tick "Add Python to PATH".
 2. Open a terminal in this `ai-clipper` folder and run:

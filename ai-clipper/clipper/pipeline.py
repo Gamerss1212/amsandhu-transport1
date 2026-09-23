@@ -135,7 +135,7 @@ def list_outputs(output_dir: Path) -> list[dict]:
     items = []
     for meta_file in sorted(output_dir.glob("*/clip_*.json"), reverse=True):
         try:
-            meta = json.loads(meta_file.read_text())
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         clip = meta.get("clip", {})

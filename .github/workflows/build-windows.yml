@@ -1,0 +1,63 @@
+name: Build AI Clipper for Windows
+
+on:
+  push:
+    paths: ["ai-clipper/**", ".github/workflows/build-windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ai-clipper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-clipper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Run tests on Windows
+        run: python -m pytest -q
+
+      - name: Build AIClipper.exe
+        run: pyinstaller --noconfirm --clean AIClipper.spec
+
+      - name: Smoke test the exe
+        shell: pwsh
+        env:
+          ANTHROPIC_API_KEY: smoke-test
+        run: |
+          .\dist\AIClipper\AIClipper.exe doctor
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist\AIClipper\data, dist\AIClipper\output, dist\AIClipper\assets, dist\AIClipper\config.yaml, dist\AIClipper\.env -ErrorAction SilentlyContinue
+          Copy-Item "packaging\START HERE.txt" dist\AIClipper\
+          7z a -tzip AIClipper-Windows.zip .\dist\AIClipper
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AIClipper-Windows
+          path: ai-clipper/AIClipper-Windows.zip
+
+      - name: Publish download link
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --cleanup-tag -y || true
+          gh release create windows-latest AIClipper-Windows.zip --target "$GITHUB_SHA" \
+            --title "AI Clipper for Windows" \
+            --notes "Download AIClipper-Windows.zip, unzip it, and double-click AIClipper.exe. See START HERE.txt inside."

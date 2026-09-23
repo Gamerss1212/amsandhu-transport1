@@ -19,7 +19,7 @@ def download(video_id: str, work_dir: Path, on_progress=None, cookies_from_brows
     out_dir.mkdir(parents=True, exist_ok=True)
     video_path, info_path = out_dir / "source.mp4", out_dir / "info.json"
     if video_path.exists() and info_path.exists():
-        return video_path, json.loads(info_path.read_text())
+        return video_path, json.loads(info_path.read_text(encoding="utf-8"))
 
     def hook(d: dict) -> None:
         if on_progress and d.get("status") == "downloading":
@@ -54,7 +54,7 @@ def download(video_id: str, work_dir: Path, on_progress=None, cookies_from_brows
             raise RuntimeError(f"download of {video_id} produced no video file")
         video_path = found[0]
     slim = {k: info.get(k) for k in KEEP_INFO}
-    info_path.write_text(json.dumps(slim))
+    info_path.write_text(json.dumps(slim), encoding="utf-8")
     return video_path, slim
 
 
