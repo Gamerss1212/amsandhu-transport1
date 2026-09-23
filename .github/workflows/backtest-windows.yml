@@ -38,9 +38,12 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           $exe = ".\dist\AIClipper\AIClipper.exe"
           & $exe doctor *>&1 | Tee-Object -FilePath doctor.log
-          # a 13-minute interview at the highest level, then an hour-long comedy show
-          & $exe clip "https://archive.org/details/George_Soros_1998_60_Minutes_Interview" --level extreme *>&1 | Tee-Object -FilePath clip_interview.log
-          & $exe clip "https://archive.org/download/Norm_Macdonald_Live/Norm%20Macdonald%20Live%20-%20S01E02%20-%20Norm%20Macdonald%20with%20Guest%20Tom%20Green.mp4" --level $env:LEVEL *>&1 | Tee-Object -FilePath clip_comedy.log
+          $interview = "https://archive.org/details/George_Soros_1998_60_Minutes_Interview"
+          $comedy = "https://archive.org/download/Norm_Macdonald_Live/Norm%20Macdonald%20Live%20-%20S01E02%20-%20Norm%20Macdonald%20with%20Guest%20Tom%20Green.mp4"
+          # 3 clips from a 13-minute interview at the highest level (built-in music, whoosh and b-roll)
+          & $exe clip $interview --clips 3 --level extreme *>&1 | Tee-Object -FilePath clip_interview.log
+          # the best 4 clips pooled across two videos (the interview is already analyzed)
+          & $exe clip $interview $comedy --clips 4 --level $env:LEVEL *>&1 | Tee-Object -FilePath clip_pooled.log
           exit 0
 
       - name: Full one-button run with the exe (no keys)
