@@ -273,8 +273,10 @@ def write_post_files(out_dir: Path, name: str, clip: dict, render_info: dict, so
     if safe:
         caption = censor(caption)
         clip = {**clip, "title": censor(clip.get("title", "")), "hook": censor(clip.get("hook", ""))}
-    link = source.get("webpage_url") or f"youtube.com/watch?v={source.get('id', '')}"
-    credit = f"\n\nCredit: {source.get('channel') or source.get('title', '')} - {link}"
+    link = source.get("webpage_url") or (f"youtube.com/watch?v={source['id']}"
+                                          if re.fullmatch(r"[\w-]{11}", str(source.get("id") or "")) else "")
+    name = source.get("channel") or (source.get("title", "") if link else "")
+    credit = f"\n\nCredit: {' - '.join(x for x in (name, link) if x)}" if (name or link) else ""  # none for your own files
     (out_dir / f"{name}.txt").write_text(caption + credit + "\n", encoding="utf-8")
     meta = {"name": name, **render_info, "clip": clip, "post_caption": caption + credit,
             "source": {"id": source.get("id"), "title": source.get("title"), "channel": source.get("channel")}}

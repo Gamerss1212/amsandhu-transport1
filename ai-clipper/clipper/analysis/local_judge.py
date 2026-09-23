@@ -76,6 +76,11 @@ CATEGORY_OF = {"funny": "funny", "shock": "shocking", "emotional": "emotional", 
                "watch_till_end": "story"}
 GRAVE = re.compile(r"\b(holocaust|nazis?|genocide|died|death|killed|murder(ed)?|suicide|cancer|abuse[d]?|war|"
                    r"funeral|overdose|massacre|terminal|passed away)\b")
+CATEGORY_TAG = {  # the hashtag people actually search for each kind of clip
+    "funny": "funny", "shocking": "crazy", "emotional": "emotional", "controversial": "debate",
+    "story": "storytime", "educational": "learnontiktok", "insightful": "mindset", "drama": "drama",
+    "motivational": "motivation", "serious": "truestory",
+}
 CAPTION_PROMPT = {
     "serious": "Let that sink in.",
     "funny": "I can't with this 😂 Who else lost it?",
@@ -421,7 +426,7 @@ def caption_and_tags(hook: str, cat: str, meta: dict, profile: dict | None) -> t
         if len(tags) >= 4:
             break
     channel = re.sub(r"[^a-z0-9]", "", (meta.get("channel") or "").lower())
-    for t in (cat if cat != "other" else "", "podcast" if "podcast" in meta.get("title", "").lower() else "",
+    for t in (CATEGORY_TAG.get(cat, ""), "podcast" if "podcast" in meta.get("title", "").lower() else "",
               channel, "fyp", "viral"):
         if t and t not in tags:
             tags.append(t)

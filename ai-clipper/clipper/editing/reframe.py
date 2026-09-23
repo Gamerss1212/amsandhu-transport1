@@ -7,6 +7,10 @@ cuts, and produces a smooth horizontal camera path plus a layout decision:
 """
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")  # hide OpenCV's harmless backend warnings in the console
+
 from dataclasses import dataclass
 from pathlib import Path
 

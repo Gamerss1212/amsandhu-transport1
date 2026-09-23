@@ -52,11 +52,11 @@ jobs:
           $cfg = @"
           discovery:
             max_duration_minutes: $env:MAX_MINUTES
-            videos_per_run: 1
+            max_videos_per_run: 2
           "@
           Set-Content -Path dist\AIClipper\config.yaml -Value $cfg
           $env:PYTHONIOENCODING = "utf-8"
-          .\dist\AIClipper\AIClipper.exe run --level $env:LEVEL *>&1 | Tee-Object -FilePath backtest.log
+          .\dist\AIClipper\AIClipper.exe run --clips 2 --level $env:LEVEL *>&1 | Tee-Object -FilePath backtest.log
           exit 0
 
       - name: Collect results
