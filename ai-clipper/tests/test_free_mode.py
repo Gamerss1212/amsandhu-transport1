@@ -247,3 +247,14 @@ def test_clips_are_pooled_across_videos(cfg, tmp_path, monkeypatch):
     titles = " ".join(c["title"] for c in clips)
     assert "Nobody talks about the day" in titles
     assert "Nobody believed me" in titles or "twenty thousand dollars" in titles
+
+
+def test_pasted_videos_are_all_considered(cfg, tmp_path, monkeypatch):
+    a = _video_with(tmp_path, cfg, "a.mp4", TEXT)
+    b = _video_with(tmp_path, cfg, "b.mp4", DULL + STRONG_B + DULL)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
+    pipe = Pipeline(cfg)
+    pipe.clip_video(f"{a}\n{b}", "simple", clips=1)  # 1 clip wanted, but both videos must be watched
+    watched = [e.message for e in pipe.rep.history if "strong clip" in e.message or "Nothing in this video" in e.message]
+    assert len(watched) == 2

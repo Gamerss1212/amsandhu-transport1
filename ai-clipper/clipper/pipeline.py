@@ -110,7 +110,8 @@ class Pipeline:
         pool: list[tuple] = []  # (clip, analysis result) from every video watched
         analyzed = blocked = 0
         for cand in candidates:
-            if len(pool) >= want or analyzed >= max_videos:
+            # videos you pasted are all watched; when finding videos itself it stops once it has enough
+            if analyzed >= max_videos or (not sources and len(pool) >= want):
                 break
             rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
                      if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
