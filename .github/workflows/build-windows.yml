@@ -2,8 +2,13 @@ name: Build AI Clipper for Windows
 
 on:
   push:
-    paths: ["ai-clipper/**", ".github/workflows/build-windows.yml"]
+    paths: ["ai-clipper/**", "!ai-clipper/packaging/backtest-request.txt", ".github/workflows/build-windows.yml"]
   workflow_dispatch:
+
+# one publish at a time: overlapping runs would delete each other's release mid-upload
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -57,7 +62,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete windows-latest --cleanup-tag -y || true
-          gh release create windows-latest AIClipper-Windows.zip --target "$GITHUB_SHA" \
-            --title "AI Clipper for Windows" \
-            --notes "Download AIClipper-Windows.zip, unzip it, and double-click AIClipper.exe. See START HERE.txt inside."
+          notes="Download AIClipper-Windows.zip, unzip it, and double-click AIClipper.exe. See START HERE.txt inside. (build ${GITHUB_SHA::7})"
+          if gh release view windows-latest > /dev/null 2>&1; then
+            # swap the file in place so the download link never disappears
+            gh release upload windows-latest AIClipper-Windows.zip --clobber
+            gh release edit windows-latest --notes "$notes"
+          else
+            gh release create windows-latest AIClipper-Windows.zip --target "$GITHUB_SHA" \
+              --title "AI Clipper for Windows" --notes "$notes"
+          fi
