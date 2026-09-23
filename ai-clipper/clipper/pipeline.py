@@ -161,7 +161,9 @@ def list_outputs(output_dir: Path) -> list[dict]:
     import json
 
     items = []
-    for meta_file in sorted(output_dir.glob("*/clip_*.json"), reverse=True):
+    files = sorted(output_dir.glob("*/clip_*.json"), key=lambda f: f.name)  # best clip of each video first
+    files.sort(key=lambda f: f.parent.name, reverse=True)  # newest video first (stable sort)
+    for meta_file in files:
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
