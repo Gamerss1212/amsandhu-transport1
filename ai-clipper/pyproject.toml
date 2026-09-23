@@ -1,0 +1,9 @@
+[project]
+name = "ai-clipper"
+version = "1.0.0"
+description = "Fully automated AI clipper: viral-trend analysis, long-form discovery, strict AI moment picking and pro editing."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

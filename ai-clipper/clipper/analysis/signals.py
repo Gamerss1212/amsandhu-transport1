@@ -1,0 +1,119 @@
+"""Per-second "interest" curves from sources other than the words themselves.
+
+  * heatmap  - YouTube's "most replayed" graph (real audience re-watch data)
+  * comments - timestamps viewers mention in comments ("23:14 had me dying"), like-weighted
+  * energy   - loudness spikes (laughter, shouting, applause, heated moments)
+  * pace     - speech rate (words per second)
+"""
+from __future__ import annotations
+
+import math
+import re
+
+import numpy as np
+
+from ..media import parse_ts, read_wav
+from ..trends.analyzer import pct_rank
+
+_TS = re.compile(r"(?<![\d:])(\d{1,2}:\d{2}(?::\d{2})?)(?![\d:])")
+
+
+def heatmap_curve(info: dict, duration: int) -> np.ndarray | None:
+    points = info.get("heatmap") or []
+    if not points:
+        return None
+    curve = np.zeros(duration)
+    for p in points:
+        s, e = int(p["start_time"]), max(int(p["start_time"]) + 1, int(math.ceil(p["end_time"])))
+        curve[s:min(e, duration)] = p["value"]
+    return curve
+
+
+def comment_curve(comments: list[dict], duration: int, spread: float = 8.0) -> np.ndarray | None:
+    curve = np.zeros(duration)
+    hits = 0
+    for c in comments:
+        weight = 1.0 + math.log1p(c.get("likes", 0))
+        for m in _TS.findall(c.get("text", "")):
+            t = parse_ts(m)
+            if t is None or t >= duration:
+                continue
+            hits += 1
+            lo, hi = int(max(0, t - 3 * spread)), int(min(duration, t + 3 * spread))
+            xs = np.arange(lo, hi)
+            curve[lo:hi] += weight * np.exp(-0.5 * ((xs - t) / spread) ** 2)
+    return curve if hits >= 3 else None
+
+
+def energy_curve(wav_path, duration: int) -> np.ndarray | None:
+    try:
+        audio, sr = read_wav(wav_path)
+    except Exception:
+        return None
+    n = min(duration, len(audio) // sr)
+    if n <= 0:
+        return None
+    frames = audio[: n * sr].reshape(n, sr)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-10)
+    db = 20 * np.log10(rms)
+    # loudness relative to the local 2-minute context, so quiet and loud shows compare fairly
+    k = 121
+    pad = np.pad(db, (k // 2, k // 2), mode="edge")
+    local = np.convolve(pad, np.ones(k) / k, mode="valid")[:n]
+    out = np.zeros(duration)
+    out[:n] = np.clip(db - local, 0, None)
+    return out
+
+
+def pace_curve(words: list[dict], duration: int) -> np.ndarray:
+    curve = np.zeros(duration)
+    for w in words:
+        i = int(w["s"])
+        if 0 <= i < duration:
+            curve[i] += 1
+    k = 5
+    return np.convolve(curve, np.ones(k) / k, mode="same")
+
+
+def to_percentiles(curve: np.ndarray | None) -> np.ndarray | None:
+    """Each second's percentile rank (0-1) within the whole video."""
+    if curve is None or not np.any(curve):
+        return None
+    return pct_rank(curve)
+
+
+def window_score(pct: np.ndarray | None, start: float, end: float) -> float | None:
+    """0-100: blend of the window's average and peak percentile."""
+    if pct is None:
+        return None
+    s, e = int(max(0, start)), int(min(len(pct), math.ceil(end)))
+    if e <= s:
+        return None
+    seg = pct[s:e]
+    return round(100 * (0.6 * float(np.mean(seg)) + 0.4 * float(np.max(seg))), 1)
+
+
+def peaks(curve: np.ndarray | None, n: int = 8, min_gap: int = 60) -> list[int]:
+    """Top-n seconds of a curve, at least `min_gap` apart."""
+    if curve is None:
+        return []
+    chosen: list[int] = []
+    for i in np.argsort(curve)[::-1]:
+        if curve[i] <= 0:
+            break
+        if all(abs(int(i) - c) >= min_gap for c in chosen):
+            chosen.append(int(i))
+        if len(chosen) >= n:
+            break
+    return sorted(chosen)
+
+
+def compute_signals(info: dict, transcript: dict, wav_path, comments: list[dict], duration: float) -> dict:
+    d = int(math.ceil(duration)) + 1
+    raw = {
+        "heatmap": heatmap_curve(info, d),
+        "comments": comment_curve(comments, d),
+        "energy": energy_curve(wav_path, d) if wav_path else None,
+        "pace": pace_curve(transcript["words"], d),
+    }
+    return {"raw": raw, "pct": {k: to_percentiles(v) for k, v in raw.items()}}

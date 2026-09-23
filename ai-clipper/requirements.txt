@@ -1,0 +1,15 @@
+anthropic>=1.8.0
+requests>=2.31
+pyyaml>=6.0
+python-dotenv>=1.0
+numpy>=1.26
+scikit-learn>=1.4
+yt-dlp>=2024.8.6
+faster-whisper>=1.0
+opencv-python-headless>=4.9
+imageio-ffmpeg>=0.5
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+pytest>=8.0
+httpx>=0.27

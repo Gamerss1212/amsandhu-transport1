@@ -1,0 +1,12 @@
+.env
+config.yaml
+data/*
+!data/trend_imports/
+data/trend_imports/*
+!data/trend_imports/.gitkeep
+output/
+assets/*/*
+!assets/*/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/

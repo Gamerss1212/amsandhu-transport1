@@ -1,0 +1,113 @@
+"""Animated captions as an ASS subtitle file (burned in by ffmpeg/libass)."""
+from __future__ import annotations
+
+import re
+
+from .timeline import is_filler
+
+W, H = 1080, 1920
+
+
+def ass_color(hex_color: str, alpha: int = 0) -> str:
+    h = hex_color.lstrip("#")
+    r, g, b = h[0:2], h[2:4], h[4:6]
+    return f"&H{alpha:02X}{b}{g}{r}".upper()
+
+
+def ass_time(t: float) -> str:
+    t = max(0.0, t)
+    cs = int(round(t * 100))
+    h, cs = divmod(cs, 360000)
+    m, cs = divmod(cs, 6000)
+    s, cs = divmod(cs, 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def clean(text: str) -> str:
+    return re.sub(r"[{}\\]", "", text).replace("\n", " ").strip()
+
+
+def _norm(word: str) -> str:
+    return re.sub(r"[^\w']", "", word.lower())
+
+
+def group_words(words: list[dict], per_group: int, max_gap: float = 0.6) -> list[list[dict]]:
+    groups, cur = [], []
+    for w in words:
+        if cur and (len(cur) >= per_group or w["s"] - cur[-1]["e"] > max_gap
+                    or re.search(r"[.!?]$", cur[-1]["w"])):
+            groups.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
+              accent: str, highlight: str, emphasis: set[str], duration: float,
+              hook: str | None = None, caption_y: int = 1380, hook_seconds: float = 2.8) -> str:
+    """style: 'basic' | 'pop' | 'karaoke'."""
+    words = [w for w in words if not is_filler(w["w"])]
+    big = style != "basic"
+    size = 92 if big else 70
+    outline = 7 if big else 5
+    margin_v = H - caption_y
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {W}
+PlayResY: {H}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cap,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,{outline},3,2,70,70,{margin_v},1
+Style: Hook,{font},74,&H00000000,&H00000000,{ass_color(accent)},{ass_color(accent)},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,250,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events: list[str] = []
+
+    def add(start: float, end: float, text: str, style_name: str = "Cap", layer: int = 0) -> None:
+        end = min(end, duration)
+        if end - start >= 0.02:
+            events.append(f"Dialogue: {layer},{ass_time(start)},{ass_time(end)},{style_name},,0,0,0,,{text}")
+
+    def fmt(w: dict) -> str:
+        t = clean(w["w"])
+        return t.upper() if uppercase else t
+
+    groups = group_words(words, per_group)
+    for gi, g in enumerate(groups):
+        g_start = g[0]["s"]
+        nxt = groups[gi + 1][0]["s"] if gi + 1 < len(groups) else duration
+        g_end = nxt if nxt - g[-1]["e"] < 0.35 else g[-1]["e"] + 0.15  # no flicker between groups
+
+        def colored(w: dict) -> str:
+            text = fmt(w)
+            return f"{{\\c{ass_color(accent)}}}{text}{{\\c&H00FFFFFF&}}" if _norm(w["w"]) in emphasis else text
+
+        if style == "basic":
+            add(g_start, g_end, " ".join(fmt(w) for w in g))
+        elif style == "pop":
+            pop = "{\\fscx70\\fscy70\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}"
+            add(g_start, g_end, pop + " ".join(colored(w) for w in g))
+        else:  # karaoke: the word being spoken lights up and pops
+            for wi, w in enumerate(g):
+                w_start = g_start if wi == 0 else w["s"]
+                w_end = g[wi + 1]["s"] if wi + 1 < len(g) else g_end
+                parts = []
+                for wj, other in enumerate(g):
+                    if wj == wi:
+                        parts.append(f"{{\\c{ass_color(highlight)}\\fscx112\\fscy112}}{fmt(other)}"
+                                     f"{{\\c&H00FFFFFF&\\fscx100\\fscy100}}")
+                    else:
+                        parts.append(colored(other))
+                intro = "{\\fscx80\\fscy80\\t(0,70,\\fscx100\\fscy100)}" if wi == 0 else ""
+                add(w_start, w_end, intro + " ".join(parts))
+
+    if hook:
+        add(0.0, min(hook_seconds, duration), "{\\fad(120,250)}" + clean(hook).upper(), "Hook", layer=1)
+    return header + "\n".join(events) + "\n"

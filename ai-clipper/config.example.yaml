@@ -1,0 +1,92 @@
+# AI Clipper configuration. Copy to config.yaml and edit.
+# API keys go in .env (see .env.example), never in this file.
+
+# ---------------------------------------------------------------- Step 1
+trends:
+  # The run stops if fewer than this many TikTok + Instagram videos were analyzed.
+  min_videos: 1000
+  # Fresh videos to pull per platform on every run (added to the local history).
+  fetch_per_platform: 600
+  # Only videos from the last N days count toward the analysis.
+  lookback_days: 30
+  # Top fraction (by virality score) labelled "viral"; bottom fraction labelled "flop".
+  viral_top_fraction: 0.2
+  flop_bottom_fraction: 0.4
+  platforms: [tiktok, instagram]
+  tiktok:
+    actor: clockworks~tiktok-scraper
+    hashtags: [podcast, podcastclips, interview, motivation, storytime, comedy, fyp]
+    search_queries: [podcast clip, viral interview moment, funny podcast]
+    actor_input: {}          # extra/override input passed straight to the Apify actor
+  instagram:
+    actor: apify~instagram-hashtag-scraper
+    hashtags: [podcastclips, podcast, interviewclips, motivation, reels]
+    actor_input: {}
+  # Also load any .json / .csv exports dropped in this folder (any source works).
+  import_dir: data/trend_imports
+
+# ---------------------------------------------------------------- Step 2
+discovery:
+  # Channels to watch in real time (channel IDs start with UC...).
+  watch_channels: []
+  #  - UCzQUP1qoWDoEbmsQxvdjxgQ   # example
+  search_queries: [podcast full episode, interview full episode, long form podcast]
+  use_trending_chart: true       # YouTube "most popular" chart (very cheap on quota)
+  region_code: US
+  language: en
+  min_duration_minutes: 15
+  max_duration_minutes: 240
+  published_within_days: 14
+  min_views: 100000
+  videos_per_run: 2              # how many long videos to fully analyze per click
+  watch_interval_minutes: 10     # real-time RSS polling interval for the web app
+
+analysis:
+  # If YouTube says "Sign in to confirm you're not a bot", let yt-dlp use your browser's
+  # YouTube login: set cookies_from_browser to chrome / firefox / edge / brave / safari,
+  # or point cookies_file at an exported cookies.txt.
+  cookies_from_browser: null
+  cookies_file: null
+  whisper_model: small           # tiny/base/small/medium/large-v3 (bigger = more accurate, slower)
+  whisper_device: auto           # auto/cpu/cuda
+  chunk_minutes: 18              # transcript window sent to the AI per request
+  min_clip_seconds: 20
+  max_clip_seconds: 75
+  max_clips_per_video: 6
+  candidates_per_chunk: 6
+  # Strictness: a clip must reach BOTH scores (0-100) to be delivered.
+  judge_threshold: 82
+  fused_threshold: 70
+  judge_with_frames: true        # show the AI judge real frames from each candidate
+  use_comments: true             # mine YouTube comments for "12:34 was insane"-style timestamps
+  max_comment_pages: 5
+  weights:                       # how the final score blends signals
+    ai: 0.45
+    heatmap: 0.20                # YouTube "most replayed" graph
+    comments: 0.10
+    energy: 0.10
+    trend_fit: 0.15              # match with what is going viral right now
+
+# ---------------------------------------------------------------- Step 3
+editing:
+  default_level: professional    # simple | normal | hard | professional | extreme
+  width: 1080
+  height: 1920
+  fps: 30
+  font: DejaVu Sans              # any installed font; drop .ttf files in assets/fonts
+  fonts_dir: assets/fonts
+  music_dir: assets/music        # royalty-free tracks (.mp3/.wav) for professional+
+  sfx_dir: assets/sfx            # whoosh/pop sounds for professional+
+  broll_dir: assets/broll        # satisfying/gameplay footage for extreme split-screen
+  accent_color: "#FFE600"
+  highlight_color: "#00FF88"
+
+llm:
+  model: claude-opus-5
+  effort: high                   # low | medium | high | xhigh | max
+  judge_effort: xhigh
+
+paths:
+  work_dir: data/work
+  output_dir: output
+  db: data/clipper.db
