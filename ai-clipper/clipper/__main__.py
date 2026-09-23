@@ -50,7 +50,10 @@ def main() -> None:
         from .pipeline import Pipeline
 
         pipe = Pipeline(cfg)
-        clips = pipe.run(args.level) if cmd == "run" else pipe.clip_video(args.source, args.level)
+        try:
+            clips = pipe.run(args.level) if cmd == "run" else pipe.clip_video(args.source, args.level)
+        except RuntimeError as exc:  # already explained in the log; no traceback needed
+            raise SystemExit(f"\nStopped: {exc}") from None
         for c in clips:
             print(f"{c['score']:>5}  {cfg.path('paths.output_dir') / c['folder'] / c['video']}")
     elif cmd == "watch":

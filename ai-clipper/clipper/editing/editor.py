@@ -18,6 +18,7 @@ from pathlib import Path
 from ..media import extract_frame, probe, run_ffmpeg
 from .captions import build_ass
 from .fonts import size_scale
+from .safety import censor
 from .levels import Preset
 from .reframe import Track, analyze_faces, plan_track, x_expression
 from .timeline import cut_points, keep_ranges, output_duration, remap, remap_words
@@ -120,6 +121,9 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
 
     cut_file, ranges, duration = cut_pass(job, preset, work)
     words = remap_words(job.words, ranges, preset.speed)
+    safe = e.get("censor_profanity", True)
+    if safe:
+        words = [{**w, "w": censor(w["w"])} for w in words]
     cuts = cut_points(ranges, preset.speed)
     info = probe(cut_file)
     in_w, in_h = info["width"], info["height"]
@@ -201,7 +205,8 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
         shutil.copy(f, fonts_work / f.name)
     ass = build_ass(words, preset.captions, preset.caption_words, preset.uppercase, e["font"],
                     e["accent_color"], e["highlight_color"], emphasis, duration,
-                    hook=job.hook if preset.hook_overlay else None, caption_y=caption_y,
+                    hook=(censor(job.hook) if safe else job.hook) if preset.hook_overlay else None,
+                    caption_y=caption_y,
                     size_scale=size_scale(e["font"], font_files))
     ass_path = work / "captions.ass"
     ass_path.write_text(ass, encoding="utf-8")
@@ -255,9 +260,13 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
             "music": music.name if music else None, "broll": broll.name if broll else None}
 
 
-def write_post_files(out_dir: Path, name: str, clip: dict, render_info: dict, source: dict) -> None:
+def write_post_files(out_dir: Path, name: str, clip: dict, render_info: dict, source: dict,
+                     safe: bool = True) -> None:
     tags = " ".join("#" + t for t in clip.get("hashtags", []))
     caption = f"{clip.get('caption') or clip.get('title', '')}\n\n{tags}".strip()
+    if safe:
+        caption = censor(caption)
+        clip = {**clip, "title": censor(clip.get("title", "")), "hook": censor(clip.get("hook", ""))}
     link = source.get("webpage_url") or f"youtube.com/watch?v={source.get('id', '')}"
     credit = f"\n\nCredit: {source.get('channel') or source.get('title', '')} - {link}"
     (out_dir / f"{name}.txt").write_text(caption + credit + "\n", encoding="utf-8")

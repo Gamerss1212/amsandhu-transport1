@@ -13,6 +13,7 @@ from .config import Config
 from .db import Database
 from .discovery import YouTubeAPI, discover
 from .editing import RenderJob, get_preset, render, write_post_files
+from .editing.safety import censor
 from .events import Event, Reporter
 from .llm import Claude
 from .trends import run_trend_analysis
@@ -126,13 +127,16 @@ class Pipeline:
     def _edit(self, result: dict, preset) -> list[dict]:
         meta, clips = result["meta"], result["clips"]
         out_dir = self.cfg.path("paths.output_dir") / \
-            f"{time.strftime('%Y-%m-%d')}_{slug(meta.get('channel', ''), 20)}_{meta.get('id', 'video')}"
+            "_".join(x for x in (time.strftime("%Y-%m-%d"), slug(meta.get("channel") or "", 20),
+                                 slug(str(meta.get("id") or "video"), 40)) if x != "clip")
         out_dir.mkdir(parents=True, exist_ok=True)
         energy = result["signals"]["raw"].get("energy")
         out = []
         for i, clip in enumerate(clips, 1):
-            name = f"clip_{i:02d}_{slug(clip.title, 30)}"
-            self.rep.progress("editing", (i - 1) / len(clips), f"Editing clip {i}/{len(clips)}: {clip.title}")
+            safe = self.cfg["editing"].get("censor_profanity", True)
+            title, hook = (censor(clip.title), censor(clip.hook)) if safe else (clip.title, clip.hook)
+            name = f"clip_{i:02d}_{slug(title, 30)}"
+            self.rep.progress("editing", (i - 1) / len(clips), f"Editing clip {i}/{len(clips)}: {title}")
             highlights = []
             if energy is not None:
                 s, e = int(clip.start), int(clip.end)
@@ -147,10 +151,10 @@ class Pipeline:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")
                 continue
             info["level"] = preset.name
-            write_post_files(out_dir, name, clip.to_dict(), info, meta)
-            item = {"folder": out_dir.name, "name": name, "title": clip.title, "hook": clip.hook,
+            write_post_files(out_dir, name, clip.to_dict(), info, meta, safe)
+            item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook,
                     "score": clip.final_score, "judge": clip.judge_score, **info}
-            self.rep.emit(Event("clip", "editing", f"Clip ready: {clip.title} (score {clip.final_score})",
+            self.rep.emit(Event("clip", "editing", f"Clip ready: {title} (score {clip.final_score})",
                                 data=item))
             out.append(item)
         self.rep.progress("editing", 1.0, "Editing complete")

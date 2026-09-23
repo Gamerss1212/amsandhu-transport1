@@ -88,3 +88,12 @@ def test_render_real_video(cfg, tmp_path, level):
     assert abs(result["duration"] - info["duration"]) < 0.3
     assert (out / info["thumbnail"]).exists()
     assert not any(p.name.startswith(".work") for p in out.iterdir())
+
+
+def test_censor_explicit_words_only():
+    from clipper.editing.safety import censor
+
+    assert censor("What the FUCK is this shit") == "What the F*CK is this sh*t"
+    assert censor("I was sucking his cock") == "I was sucking his c*ck"
+    assert censor("Dickens ordered a cocktail and shiitake") == "Dickens ordered a cocktail and shiitake"
+    assert censor("") == ""
