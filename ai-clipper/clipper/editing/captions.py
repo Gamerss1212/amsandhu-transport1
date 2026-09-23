@@ -47,7 +47,7 @@ def group_words(words: list[dict], per_group: int, max_gap: float = 0.6) -> list
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
               hook: str | None = None, caption_y: int = 1380, hook_seconds: float = 2.8,
-              size_scale: float = 1.0) -> str:
+              size_scale: float = 1.0, emphasis_pop: bool = False) -> str:
     """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts."""
     words = [w for w in words if not is_filler(w["w"])]
     big = style != "basic"
@@ -89,7 +89,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         def colored(w: dict) -> str:
             text = fmt(w)
-            return f"{{\\c{ass_color(accent)}}}{text}{{\\c&H00FFFFFF&}}" if _norm(w["w"]) in emphasis else text
+            if _norm(w["w"]) not in emphasis:
+                return text
+            if emphasis_pop:  # key words are bigger, tilted and in the accent colour
+                return (f"{{\\c{ass_color(accent)}\\fscx122\\fscy122\\frz3}}{text}"
+                        f"{{\\c&H00FFFFFF&\\fscx100\\fscy100\\frz0}}")
+            return f"{{\\c{ass_color(accent)}}}{text}{{\\c&H00FFFFFF&}}"
 
         if style == "basic":
             add(g_start, g_end, " ".join(fmt(w) for w in g))
@@ -111,5 +116,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 add(w_start, w_end, intro + " ".join(parts))
 
     if hook:
-        add(0.0, min(hook_seconds, duration), "{\\fad(120,250)}" + clean(hook).upper(), "Hook", layer=1)
+        # hook card drops in with an overshoot, holds, then fades
+        anim = "{\\fad(80,250)\\fscx60\\fscy60\\frz-4\\t(0,160,\\fscx108\\fscy108\\frz2)\\t(160,260,\\fscx100\\fscy100\\frz0)}"
+        add(0.0, min(hook_seconds, duration), anim + clean(hook).upper(), "Hook", layer=1)
     return header + "\n".join(events) + "\n"

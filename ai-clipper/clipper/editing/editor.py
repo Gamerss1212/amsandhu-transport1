@@ -104,14 +104,31 @@ def zoom_events(words: list[dict], emphasis: set[str], cuts: list[float], preset
     return events[:40]
 
 
+def _ramp(t: str, a: float, b: float, rise: float = 0.12, fall: float = 0.22) -> str:
+    """0 -> 1 -> 0 envelope over [a, b] with eased edges (no hard jumps in framing)."""
+    x = f"clip(min(({t}-{a:.3f})/{rise},({b:.3f}-{t})/{fall}),0,1)"
+    return f"(0.5-0.5*cos(PI*{x}))"
+
+
 def zoom_expr(events: list[tuple[float, float, float]], slow_push: bool, duration: float, fps: int) -> str:
     t = f"(on/{fps})"
     expr = "1"
     if slow_push:
         expr += f"+0.05*{t}/{max(duration, 1):.2f}"
     for a, b, z in events:
-        expr += f"+{z}*between({t},{a:.3f},{b:.3f})"
+        expr += f"+{z}*{_ramp(t, a, b)}"
     return expr
+
+
+def shake_expr(events: list[tuple[float, float, float]], fps: int, axis: int) -> str:
+    """Short decaying camera shake at the start of every big punch-in."""
+    t = f"(on/{fps})"
+    terms = []
+    for a, _, z in events:
+        if z >= 0.1:
+            freq = 47 if axis == 0 else 61
+            terms.append(f"14*sin({freq}*{t})*clip(1-({t}-{a:.3f})/0.35,0,1)*between({t},{a:.3f},{a + 0.35:.3f})")
+    return "+".join(terms[:20]) or "0"
 
 
 def render(job: RenderJob, preset: Preset, cfg) -> dict:
@@ -189,13 +206,18 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     emphasis = {_norm(w) for phrase in job.emphasis for w in phrase.split()}
     zooms = zoom_events(words, emphasis, cuts, preset, duration)
     if zooms or preset.slow_push:
+        sx = shake_expr(zooms, fps, 0) if preset.shake else "0"
+        sy = shake_expr(zooms, fps, 1) if preset.shake else "0"
         g.append(f"{chain}zoompan=z='{zoom_expr(zooms, preset.slow_push, duration, fps)}':"
-                 f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={fps}[zoomed]")
+                 f"x='iw/2-(iw/zoom/2)+({sx})':y='ih/2-(ih/zoom/2)+({sy})':d=1:s={W}x{H}:fps={fps}[zoomed]")
         chain = "[zoomed]"
     if preset.color_grade:
         g.append(f"{chain}eq=contrast=1.07:saturation=1.18:brightness=0.012,"
                  f"unsharp=5:5:0.55:5:5:0.0[graded]")
         chain = "[graded]"
+    if preset.vignette:
+        g.append(f"{chain}vignette=angle=PI/5:mode=forward[vig]")
+        chain = "[vig]"
     flashes = [t for t in (remap(h, ranges, preset.speed) for h in job.highlights) if t is not None and t > 0.3]
     if preset.flash and flashes:
         enable = "+".join(f"between(t,{p:.3f},{p + 0.09:.3f})" for p in flashes[:4])
@@ -213,7 +235,7 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
                     e["accent_color"], e["highlight_color"], emphasis, duration,
                     hook=(censor(job.hook) if safe else job.hook) if preset.hook_overlay else None,
                     caption_y=caption_y,
-                    size_scale=size_scale(e["font"], font_files))
+                    size_scale=size_scale(e["font"], font_files), emphasis_pop=preset.emphasis_pop)
     ass_path = work / "captions.ass"
     ass_path.write_text(ass, encoding="utf-8")
     g.append(f"{chain}subtitles=filename={_esc(ass_path)}:fontsdir={_esc(fonts_work)}[subbed]")
@@ -227,7 +249,9 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     g.append(f"{chain}format=yuv420p[vout]")
 
     # ---------------------------------------------------------------- audio
-    g.append("[0:a]aformat=sample_rates=48000:channel_layouts=stereo[speech]")
+    voice = ("highpass=f=75,afftdn=nf=-25,acompressor=threshold=0.1:ratio=3:attack=5:release=120:makeup=2,"
+             "equalizer=f=3200:t=q:w=1.2:g=2.5,") if preset.voice_enhance else ""
+    g.append(f"[0:a]{voice}aformat=sample_rates=48000:channel_layouts=stereo[speech]")
     a_chain = "[speech]"
     if sfx_i is not None:
         hits = cuts[:6]

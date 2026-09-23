@@ -27,11 +27,11 @@ LEVEL_INFO = {
     "normal": ("Follows the speaker's face, bold pop-in captions and a hook title.",
                ["Face tracking", "Pop-in captions", "Hook title", "Pause trim"]),
     "hard": ("Tight jump cuts with word-by-word captions and punch-in zooms.",
-             ["Jump cuts", "Karaoke captions", "Punch-in zooms", "Color grade"]),
+             ["Jump cuts", "Karaoke captions", "Eased zooms", "Voice cleanup", "Color grade"]),
     "professional": ("Polished like a pro editor: music under the voice, whooshes, progress bar.",
-                     ["Smooth tracking", "Pattern zooms", "Music", "Whoosh SFX", "Progress bar"]),
+                     ["Smooth tracking", "Pattern zooms", "Music", "Whoosh SFX", "Vignette", "Progress bar"]),
     "extreme": ("Everything, plus a split screen with b-roll, flashes and faster pacing.",
-                ["B-roll split", "Flashes", "Push-in", "Faster pacing"]),
+                ["B-roll split", "Camera shake", "Flashes", "Push-in", "Faster pacing"]),
 }
 
 

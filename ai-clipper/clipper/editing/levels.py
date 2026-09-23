@@ -27,6 +27,10 @@ class Preset:
     speed: float
     crf: int
     x264_preset: str
+    voice_enhance: bool = False  # de-noise, de-rumble, compress + presence boost on the voice
+    vignette: bool = False       # darkened edges pull the eye to the speaker
+    shake: bool = False          # quick camera shake on the punch-in words
+    emphasis_pop: bool = False   # emphasis words grow and tilt in the captions
 
 
 LEVELS: dict[str, Preset] = {
@@ -44,17 +48,20 @@ LEVELS: dict[str, Preset] = {
                    max_pause=0.45, remove_fillers=True, hook_overlay=True, zoom_punch=True,
                    pattern_zoom=False, slow_push=False, progress_bar=False, color_grade=True,
                    loudnorm=True, music=False, sfx=False, broll_split=False, flash=False,
-                   speed=1.0, crf=19, x264_preset="medium"),
+                   speed=1.0, crf=19, x264_preset="medium", voice_enhance=True,
+                   emphasis_pop=True),
     "professional": Preset("professional", reframe="face_smooth", captions="karaoke", caption_words=3,
                            uppercase=True, max_pause=0.35, remove_fillers=True, hook_overlay=True,
                            zoom_punch=True, pattern_zoom=True, slow_push=False, progress_bar=True,
                            color_grade=True, loudnorm=True, music=True, sfx=True, broll_split=False,
-                           flash=False, speed=1.03, crf=18, x264_preset="medium"),
+                           flash=False, speed=1.03, crf=18, x264_preset="medium",
+                           voice_enhance=True, vignette=True, emphasis_pop=True),
     "extreme": Preset("extreme", reframe="face_smooth", captions="karaoke", caption_words=2,
                       uppercase=True, max_pause=0.25, remove_fillers=True, hook_overlay=True,
                       zoom_punch=True, pattern_zoom=True, slow_push=True, progress_bar=True,
                       color_grade=True, loudnorm=True, music=True, sfx=True, broll_split=True,
-                      flash=True, speed=1.07, crf=17, x264_preset="slow"),
+                      flash=True, speed=1.07, crf=17, x264_preset="slow",
+                      voice_enhance=True, vignette=True, shake=True, emphasis_pop=True),
 }
 
 LEVEL_NAMES = list(LEVELS)

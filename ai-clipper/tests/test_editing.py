@@ -72,7 +72,7 @@ def test_levels():
         get_preset("ultra")
 
 
-@pytest.mark.parametrize("level", ["simple", "hard"])
+@pytest.mark.parametrize("level", ["simple", "hard", "extreme"])
 def test_render_real_video(cfg, tmp_path, level):
     src = tmp_path / "src.mp4"
     subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=8",
