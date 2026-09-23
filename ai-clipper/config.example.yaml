@@ -96,7 +96,7 @@ editing:
   width: 1080
   height: 1920
   fps: 30
-  font: DejaVu Sans              # any installed font; drop .ttf files in assets/fonts
+  font: Poppins ExtraBold        # bundled; or any font you drop into assets/fonts (use its name)
   fonts_dir: assets/fonts
   music_dir: assets/music        # royalty-free tracks (.mp3/.wav) for professional+
   sfx_dir: assets/sfx            # whoosh/pop sounds for professional+

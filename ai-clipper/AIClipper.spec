@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 datas = [("config.example.yaml", "."), (".env.example", "."),
-         ("clipper/web/templates", "clipper/web/templates")]
+         ("clipper/web/templates", "clipper/web/templates"), ("clipper/editing/fonts", "clipper/editing/fonts")]
 for pkg in ("faster_whisper", "imageio_ffmpeg", "yt_dlp_ejs"):  # whisper VAD, ffmpeg, YouTube JS solver
     datas += collect_data_files(pkg)
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("curl_cffi")

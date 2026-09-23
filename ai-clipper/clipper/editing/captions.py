@@ -46,11 +46,13 @@ def group_words(words: list[dict], per_group: int, max_gap: float = 0.6) -> list
 
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
-              hook: str | None = None, caption_y: int = 1380, hook_seconds: float = 2.8) -> str:
-    """style: 'basic' | 'pop' | 'karaoke'."""
+              hook: str | None = None, caption_y: int = 1380, hook_seconds: float = 2.8,
+              size_scale: float = 1.0) -> str:
+    """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts."""
     words = [w for w in words if not is_filler(w["w"])]
     big = style != "basic"
-    size = 92 if big else 70
+    size = round((92 if big else 70) * size_scale)
+    hook_size = round(74 * size_scale)
     outline = 7 if big else 5
     margin_v = H - caption_y
     header = f"""[Script Info]
@@ -63,7 +65,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,{outline},3,2,70,70,{margin_v},1
-Style: Hook,{font},74,&H00000000,&H00000000,{ass_color(accent)},{ass_color(accent)},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,250,1
+Style: Hook,{font},{hook_size},&H00000000,&H00000000,{ass_color(accent)},{ass_color(accent)},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,250,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

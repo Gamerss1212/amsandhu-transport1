@@ -11,16 +11,19 @@ import json
 import os
 import random
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..media import extract_frame, probe, run_ffmpeg
 from .captions import build_ass
+from .fonts import size_scale
 from .levels import Preset
 from .reframe import Track, analyze_faces, plan_track, x_expression
 from .timeline import cut_points, keep_ranges, output_duration, remap, remap_words
 
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
+BUNDLED_FONTS = Path(__file__).parent / "fonts"
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm"}
 
 
@@ -189,14 +192,20 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
         g.append(f"{chain}drawbox=x=0:y=0:w=iw:h=ih:color=white@0.55:t=fill:enable='{enable}'[flashed]")
         chain = "[flashed]"
 
+    # the bundled caption font + any fonts you add, so captions look the same on every PC
+    fonts_work = work / "fonts"
+    fonts_work.mkdir(exist_ok=True)
+    user_fonts = asset("fonts_dir")
+    font_files = [*BUNDLED_FONTS.glob("*.ttf"), *(user_fonts.glob("*.[ot]tf") if user_fonts.exists() else [])]
+    for f in font_files:
+        shutil.copy(f, fonts_work / f.name)
     ass = build_ass(words, preset.captions, preset.caption_words, preset.uppercase, e["font"],
                     e["accent_color"], e["highlight_color"], emphasis, duration,
-                    hook=job.hook if preset.hook_overlay else None, caption_y=caption_y)
+                    hook=job.hook if preset.hook_overlay else None, caption_y=caption_y,
+                    size_scale=size_scale(e["font"], font_files))
     ass_path = work / "captions.ass"
     ass_path.write_text(ass, encoding="utf-8")
-    fonts_dir = asset("fonts_dir")
-    fonts_opt = f":fontsdir={_esc(fonts_dir)}" if fonts_dir.exists() else ""
-    g.append(f"{chain}subtitles=filename={_esc(ass_path)}{fonts_opt}[subbed]")
+    g.append(f"{chain}subtitles=filename={_esc(ass_path)}:fontsdir={_esc(fonts_work)}[subbed]")
     chain = "[subbed]"
 
     if preset.progress_bar:
@@ -240,9 +249,7 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     os.replace(partial, out)
 
     thumb = extract_frame(out, min(1.2, duration / 2), job.out_dir / f"{job.name}.jpg", width=W)
-    for p in work.iterdir():
-        p.unlink()
-    work.rmdir()
+    shutil.rmtree(work, ignore_errors=True)
     return {"video": out.name, "thumbnail": thumb.name, "duration": round(duration, 2),
             "layout": layout, "jump_cuts": len(ranges) - 1, "zooms": len(zooms),
             "music": music.name if music else None, "broll": broll.name if broll else None}
