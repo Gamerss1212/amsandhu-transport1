@@ -31,8 +31,8 @@ class Pipeline:
 
     def _llm(self) -> Claude | None:
         if not self.cfg.anthropic_key:
-            self.rep.info("analysis", "ANTHROPIC_API_KEY not set - using signal-only clip picking "
-                                      "(much less accurate; the strict AI judge is skipped)")
+            self.rep.info("analysis", "Free mode: the built-in judge reads the whole transcript and picks clips "
+                                      "(add an ANTHROPIC_API_KEY to also use Claude)")
             return None
         return Claude(self.cfg["llm"]["model"], self.cfg["llm"]["effort"])
 
@@ -49,7 +49,7 @@ class Pipeline:
             rep = self.rep
 
             # ---- Step 1: what goes viral right now (fresh every run)
-            rep.info("trends", "Step 1/3 - analyzing TikTok + Instagram for what goes viral")
+            rep.info("trends", "Step 1/3 - analyzing 1000+ short-form videos for what goes viral")
             profile = run_trend_analysis(self.cfg, self.db, rep)
 
             # ---- Step 2: find long-form videos and watch them fully

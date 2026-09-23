@@ -16,6 +16,7 @@ from pathlib import Path
 from ..llm import Claude, image_block
 from ..media import extract_frame, fmt_ts
 from ..trends.analyzer import trend_fit
+from . import local_judge
 from .signals import peaks, window_score
 
 CATEGORIES = ["funny", "shocking", "emotional", "insightful", "controversial", "story",
@@ -350,6 +351,34 @@ def judge(llm: Claude, clips: list[Clip], meta: dict, transcript: dict, video: P
             c.emphasis_words = v["emphasis_words"][:8]
 
 
+def local_candidates(transcript: dict, signals: dict, profile: dict | None, cfg: dict) -> list[Clip]:
+    """No-key mode: the built-in judge scans every sentence, plus audience/loudness peaks."""
+    a = cfg["analysis"]
+    wins = local_judge.find_windows(transcript["segments"], signals, profile, a["min_clip_seconds"],
+                                    a["max_clip_seconds"], top_n=max(12, a["max_clips_per_video"] * 5))
+    clips = [Clip(w["start"], w["end"], "", "") for w in wins]
+    return clips + signal_only_candidates(transcript, signals, cfg)
+
+
+def local_review(clips: list[Clip], meta: dict, transcript: dict, signals: dict, profile: dict | None,
+                 weights: dict) -> None:
+    """Scores, titles and captions clips with the built-in judge (sets ai_score / fatal_flaws)."""
+    segs = transcript["segments"]
+    for c in clips:
+        r = local_judge.review("", c.start, c.end, segs, signals, profile)
+        text = r["text"]
+        c.ai_score = r["score"]
+        c.fatal_flaws = r["flaws"]
+        c.judge_reasons = "Built-in judge: " + ", ".join(f"{k} {v * 100:.0f}" for k, v in r["parts"].items())
+        c.category = local_judge.category(text)
+        c.hook = local_judge.hook_text(segs, c.start, c.end, profile)
+        c.title = c.hook.rstrip(".")[:70]
+        c.summary = text[:280]
+        c.caption, c.hashtags = local_judge.caption_and_tags(c.hook, c.category, meta, profile)
+        c.emphasis_words = local_judge.emphasis_words(text, profile)
+        fuse(c, signals, profile, transcript_lines(segs, c.start, c.end), weights)
+
+
 def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | None, cfg: dict,
                    video: Path, llm: Claude | None, progress=None, log=None) -> tuple[list[Clip], list[Clip]]:
     """Returns (approved clips, all judged candidates)."""
@@ -359,8 +388,11 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
     progress = progress or (lambda f, m="": None)
     log = log or (lambda m: None)
 
-    raw = find_candidates(llm, meta, transcript, signals, playbook, cfg, progress) if llm else \
-        signal_only_candidates(transcript, signals, cfg)
+    if llm:
+        raw = find_candidates(llm, meta, transcript, signals, playbook, cfg, progress)
+    else:
+        progress(0.3, "Built-in judge scanning every sentence of the video...")
+        raw = local_candidates(transcript, signals, profile, cfg)
     log(f"{len(raw)} raw candidates proposed")
 
     clips = []
@@ -369,9 +401,14 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
         if not snapped:
             continue
         c.start, c.end = snapped
-        fuse(c, signals, profile, transcript_lines(segs, c.start, c.end), a["weights"])
+        if llm:
+            fuse(c, signals, profile, transcript_lines(segs, c.start, c.end), a["weights"])
         clips.append(c)
-    clips = dedupe(clips)
+    if llm:
+        clips = dedupe(clips)
+    else:
+        local_review(clips, meta, transcript, signals, profile, a["weights"])
+        clips = dedupe([c for c in clips if not c.fatal_flaws]) + dedupe([c for c in clips if c.fatal_flaws])
     log(f"{len(clips)} unique candidates after snapping and de-duplication")
 
     shortlist = clips[: max(4, a["max_clips_per_video"] * 2)]
@@ -388,8 +425,13 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
 
     approved = []
     for c in shortlist:
-        judge_ok = c.judge_score is None or c.judge_score >= a["judge_threshold"]
-        if judge_ok and c.fused_score >= a["fused_threshold"]:
+        if llm:
+            ok = (c.judge_score is None or c.judge_score >= a["judge_threshold"]) and \
+                c.fused_score >= a["fused_threshold"]
+        else:
+            ok = not c.fatal_flaws and c.ai_score >= a["local_content_threshold"] and \
+                c.fused_score >= a["local_fused_threshold"]
+        if ok:
             c.final_score = round(0.6 * c.judge_score + 0.4 * c.fused_score, 1) if c.judge_score is not None \
                 else c.fused_score
             approved.append(c)
@@ -398,8 +440,12 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
         c.emphasis_words = c.emphasis_words or []
         if not c.hashtags and profile:
             c.hashtags = [r["feature"].lstrip("#") for r in profile.get("hashtag_lift", [])[:6]]
-    log(f"{len(approved)} clips passed the strict review (judge >= {a['judge_threshold']}, "
-        f"fused >= {a['fused_threshold']})")
+    if llm:
+        log(f"{len(approved)} clips passed the strict review (judge >= {a['judge_threshold']}, "
+            f"fused >= {a['fused_threshold']})")
+    else:
+        log(f"{len(approved)} clips passed the built-in strict review (content >= "
+            f"{a['local_content_threshold']}, combined >= {a['local_fused_threshold']})")
     return approved, shortlist
 
 

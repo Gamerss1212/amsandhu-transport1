@@ -7,7 +7,7 @@ from ..config import Config
 from ..events import Reporter
 from ..llm import Claude
 from ..media import extract_audio
-from .download import caption_file, download
+from .download import caption_file, download, ytdlp_comments
 from .moments import Clip, clip_words, select_moments
 from .signals import compute_signals
 from .transcribe import transcribe
@@ -33,10 +33,13 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     rep.info("analysis", f"Transcript: {len(transcript['words'])} words via {transcript['source']}")
 
     comments = []
-    if a["use_comments"] and yt_api:
+    if a["use_comments"]:
         rep.progress("analysis", 0.35, "Reading viewer comments for timestamped moments...")
         try:
-            comments = yt_api.comments(vid, a["max_comment_pages"])
+            comments = yt_api.comments(vid, a["max_comment_pages"]) if yt_api else \
+                ytdlp_comments(vid, 100 * a["max_comment_pages"], a.get("cookies_from_browser"),
+                               a.get("cookies_file"))
+            rep.info("analysis", f"Read {len(comments)} comments")
         except Exception as exc:
             rep.info("analysis", f"Comments unavailable: {exc}")
 

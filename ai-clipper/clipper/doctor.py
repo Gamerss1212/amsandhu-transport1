@@ -20,12 +20,14 @@ def doctor(cfg: Config) -> bool:
         if required and not passed:
             ok = False
 
-    check("ANTHROPIC_API_KEY set", bool(cfg.anthropic_key),
-          "needed for accurate clip picking + the strict judge (put it in .env)")
-    check("YOUTUBE_API_KEY set", bool(cfg.youtube_key),
-          "optional: better discovery, view stats and comment timestamps", required=False)
-    check("APIFY_TOKEN set", bool(cfg.apify_token),
-          f"needed to pull fresh TikTok/Instagram data (or drop exports in {cfg['trends']['import_dir']})",
+    print("No keys are needed - everything below marked (optional) is an extra.")
+    check("ANTHROPIC_API_KEY (optional)", bool(cfg.anthropic_key),
+          "not set: the built-in judge picks clips (free); a key adds Claude as an extra AI judge",
+          required=False)
+    check("YOUTUBE_API_KEY (optional)", bool(cfg.youtube_key),
+          "not set: free YouTube search, RSS and yt-dlp are used", required=False)
+    check("APIFY_TOKEN (optional)", bool(cfg.apify_token),
+          "not set: trends come from free YouTube Shorts collection instead of paid TikTok/Instagram data",
           required=False)
 
     try:
@@ -40,7 +42,7 @@ def doctor(cfg: Config) -> bool:
                            ("faster_whisper", "pip install faster-whisper (falls back to YouTube captions)", False),
                            ("cv2", "pip install opencv-python-headless", True),
                            ("sklearn", "pip install scikit-learn", True),
-                           ("anthropic", "pip install anthropic", True)):
+                           ("anthropic", "pip install anthropic (only for the optional Claude judge)", False)):
         try:
             importlib.import_module(mod)
             check(f"python package {mod}", True)
@@ -55,8 +57,8 @@ def doctor(cfg: Config) -> bool:
     db = Database(cfg.path("paths.db"))
     have = len(db.load_short_videos(time.time() - cfg["trends"]["lookback_days"] * 86400))
     check(f"trend history: {have} videos stored (need {cfg['trends']['min_videos']} per run)",
-          have >= cfg["trends"]["min_videos"] or bool(cfg.apify_token),
-          "set APIFY_TOKEN or import data", required=False)
+          have >= cfg["trends"]["min_videos"] or cfg["trends"]["free"]["enabled"] or bool(cfg.apify_token),
+          "turn on trends.free in config.yaml or import data", required=False)
     check(f"{len(cfg['discovery']['watch_channels'])} watched channels",
           bool(cfg["discovery"]["watch_channels"]), "add channel IDs for real-time uploads", required=False)
 

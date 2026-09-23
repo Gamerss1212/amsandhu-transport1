@@ -5,7 +5,7 @@ datas = [("config.example.yaml", "."), (".env.example", "."),
          ("clipper/web/templates", "clipper/web/templates")]
 for pkg in ("faster_whisper", "imageio_ffmpeg"):  # whisper VAD model, bundled ffmpeg
     datas += collect_data_files(pkg)
-binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
+binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime") + collect_dynamic_libs("curl_cffi")
 hiddenimports = collect_submodules("clipper") + collect_submodules("uvicorn")
 
 a = Analysis(["launcher.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hiddenimports,

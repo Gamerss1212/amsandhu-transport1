@@ -61,3 +61,20 @@ def download(video_id: str, work_dir: Path, on_progress=None, cookies_from_brows
 def caption_file(video_path: Path) -> Path | None:
     files = sorted(video_path.parent.glob("source*.json3"))
     return files[0] if files else None
+
+
+def ytdlp_comments(video_id: str, max_comments: int = 500, cookies_from_browser: str | None = None,
+                   cookies_file: str | None = None) -> list[dict]:
+    """Top comments without an API key (used to find timestamps viewers quote)."""
+    import yt_dlp
+
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "getcomments": True,
+            "extractor_args": {"youtube": {"max_comments": [str(max_comments), "all", "0", "0"],
+                                           "comment_sort": ["top"]}}}
+    if cookies_from_browser:
+        opts["cookiesfrombrowser"] = (cookies_from_browser,)
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False) or {}
+    return [{"text": c.get("text") or "", "likes": c.get("like_count") or 0} for c in info.get("comments") or []]

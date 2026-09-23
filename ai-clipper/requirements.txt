@@ -5,6 +5,7 @@ python-dotenv>=1.0
 numpy>=1.26
 scikit-learn>=1.4
 yt-dlp>=2024.8.6
+curl_cffi>=0.7
 faster-whisper>=1.0
 opencv-python-headless>=4.9
 imageio-ffmpeg>=0.5

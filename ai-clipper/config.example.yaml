@@ -3,9 +3,9 @@
 
 # ---------------------------------------------------------------- Step 1
 trends:
-  # The run stops if fewer than this many TikTok + Instagram videos were analyzed.
+  # The run stops if fewer than this many short-form videos were analyzed.
   min_videos: 1000
-  # Fresh videos to pull per platform on every run (added to the local history).
+  # Paid, optional (needs APIFY_TOKEN): fresh TikTok/Instagram videos per platform per run.
   fetch_per_platform: 600
   # Only videos from the last N days count toward the analysis.
   lookback_days: 30
@@ -22,6 +22,22 @@ trends:
     actor: apify~instagram-hashtag-scraper
     hashtags: [podcastclips, podcast, interviewclips, motivation, reels]
     actor_input: {}
+  # Free sources - no key needed. Collected with yt-dlp on every run.
+  free:
+    enabled: true
+    # Big creators whose Shorts are studied (YouTube handles, without the @).
+    youtube_channels: [TheDiaryOfACEO, TheoVon, PBDPodcast, CallHerDaddy, ShawnRyanShow, ChrisWillx,
+                       hubermanlab, FirstWeFeast, SteveWillDoIt, alexhormozi, GaryVee, jubilee,
+                       MrBeast, colinandsamir]
+    youtube_hashtags: [podcast, podcastclips, interview, motivation, storytime, comedy]
+    youtube_searches: [podcast clip, viral interview moment, funny podcast moment, storytime podcast,
+                       motivational speech clip]
+    # TikTok usernames (without the @). TikTok blocks many connections; if it works on yours, these
+    # videos are analyzed too.
+    tiktok_creators: []
+    per_source: 120            # newest Shorts taken from each source
+    workers: 8                 # parallel requests
+    max_detail_minutes: 8      # time budget for reading likes/comments/dates (new videos only)
   # Also load any .json / .csv exports dropped in this folder (any source works).
   import_dir: data/trend_imports
 
@@ -57,6 +73,9 @@ analysis:
   # Strictness: a clip must reach BOTH scores (0-100) to be delivered.
   judge_threshold: 82
   fused_threshold: 70
+  # Used when there is no ANTHROPIC_API_KEY (built-in judge, no AI service needed).
+  local_content_threshold: 72
+  local_fused_threshold: 64
   judge_with_frames: true        # show the AI judge real frames from each candidate
   use_comments: true             # mine YouTube comments for "12:34 was insane"-style timestamps
   max_comment_pages: 5

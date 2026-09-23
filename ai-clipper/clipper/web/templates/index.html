@@ -65,7 +65,7 @@
 <body>
 <header>
   <h1>AI <span>Clipper</span></h1>
-  <div class="sub">Analyzes what goes viral on TikTok + Instagram, finds long YouTube videos, watches them fully, and edits only the best moments.</div>
+  <div class="sub">Analyzes what goes viral in 1000+ short videos, finds long YouTube videos, watches them fully, and edits only the best moments.</div>
 </header>
 <main>
   <div>
@@ -109,8 +109,8 @@ async function loadStatus() {
   $("levels").innerHTML = st.levels.map((l) =>
     `<button class="level ${l.name === level ? "on" : ""}" data-l="${l.name}"><b>${l.name}</b><small>${esc(l.info)}</small></button>`).join("");
   document.querySelectorAll(".level").forEach((b) => b.onclick = () => { level = b.dataset.l; loadStatus(); });
-  $("keys").innerHTML = Object.entries(st.keys).map(([k, ok]) =>
-    `<span class="pill ${ok ? "ok" : "no"}">${k} key ${ok ? "✓" : "missing"}</span>`).join("")
+  $("keys").innerHTML = `<span class="pill ok">${st.keys.anthropic ? "Claude AI judge on" : "Free mode · built-in judge · no keys needed"}</span>`
+    + Object.entries(st.keys).filter(([k, ok]) => ok && k !== "anthropic").map(([k]) => `<span class="pill ok">${k} extra on</span>`).join("")
     + `<span class="pill">${st.watch_channels} watched channels</span>`;
   $("go").disabled = st.running;
   if (st.trends) {
