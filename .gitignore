@@ -1,0 +1,4 @@
+ai-clipper.zip
+__pycache__/
+*.pyc
+.pytest_cache/
