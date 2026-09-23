@@ -32,6 +32,16 @@ def group_segments(words: list[dict], max_words: int = 28, max_gap: float = 1.2)
     return segments
 
 
+def _model_cached(model_size: str) -> bool:
+    try:
+        from faster_whisper.utils import download_model
+
+        download_model(model_size, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
 class WrongLanguage(RuntimeError):
     pass
 
@@ -84,6 +94,9 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
     result = None
     try:
         wav = extract_audio(video, video.parent / "audio16k.wav")
+        if log and not _model_cached(model_size):
+            log(f"First run: downloading the '{model_size}' speech-recognition model (about 250-500 MB, "
+                "only once). This can take a few minutes.")
         result = _whisper(wav, model_size, device, language)
     except WrongLanguage:
         raise
