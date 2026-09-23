@@ -128,3 +128,26 @@ def test_select_moments_is_strict(cfg, tmp_path):
     assert clip.judge_score == 91 and clip.final_score > 85
     rejected = [c for c in judged if c.title == "Meh"][0]
     assert rejected.judge_score <= 50 and rejected.fatal_flaws == ["weak hook"]
+
+
+def test_reaction_curve_finds_laughter_between_words(tmp_path):
+    import wave
+
+    from clipper.analysis.signals import reaction_curve
+
+    sr = 16000
+    t = np.arange(20 * sr) / sr
+    audio = 0.2 * np.sin(2 * np.pi * 220 * t)          # someone talking the whole time...
+    audio[8 * sr:11 * sr] = 0.0                          # ...except a gap at 8-11s
+    rng = np.random.default_rng(0)
+    audio[9 * sr:10 * sr] = rng.normal(0, 0.3, sr)       # loud laughter inside the gap
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+    words = [{"w": "x", "s": s / 2, "e": s / 2 + 0.4} for s in range(0, 40) if not 16 <= s < 22]
+    curve = reaction_curve(path, words, 20)
+    assert curve is not None and int(np.argmax(curve)) == 9
+    assert curve[:7].sum() == 0 and curve[12:].sum() == 0

@@ -3,6 +3,8 @@
   * heatmap  - YouTube's "most replayed" graph (real audience re-watch data)
   * comments - timestamps viewers mention in comments ("23:14 had me dying"), like-weighted
   * energy   - loudness spikes (laughter, shouting, applause, heated moments)
+  * reaction - loud moments while nobody is saying words: laughter, applause, gasps
+               (Whisper does not write these down, so they are found in the audio)
   * pace     - speech rate (words per second)
 """
 from __future__ import annotations
@@ -65,6 +67,34 @@ def energy_curve(wav_path, duration: int) -> np.ndarray | None:
     return out
 
 
+def reaction_curve(wav_path, words: list[dict], duration: int, hop: float = 0.1) -> np.ndarray | None:
+    try:
+        audio, sr = read_wav(wav_path)
+    except Exception:
+        return None
+    step = int(sr * hop)
+    n = len(audio) // step
+    if n < 50:
+        return None
+    frames = audio[: n * step].reshape(n, step)
+    db = 20 * np.log10(np.sqrt(np.mean(frames ** 2, axis=1) + 1e-10))
+    # speech level = typical loudness while words are being spoken
+    speaking = np.zeros(n, dtype=bool)
+    for w in words:
+        a, b = int((w["s"] - 0.15) / hop), int((w["e"] + 0.15) / hop) + 1
+        speaking[max(0, a):min(n, b)] = True
+    if speaking.sum() < 50 or (~speaking).sum() < 10:
+        return None
+    speech_db = float(np.median(db[speaking]))
+    # a reaction is a gap between words that is nearly as loud as (or louder than) the speech
+    excess = np.clip(db - (speech_db - 6.0), 0, None) * ~speaking
+    per_s = int(round(1 / hop))
+    secs = min(duration, n // per_s)
+    curve = np.zeros(duration)
+    curve[:secs] = excess[: secs * per_s].reshape(secs, per_s).sum(axis=1)
+    return curve if np.any(curve) else None
+
+
 def pace_curve(words: list[dict], duration: int) -> np.ndarray:
     curve = np.zeros(duration)
     for w in words:
@@ -114,6 +144,7 @@ def compute_signals(info: dict, transcript: dict, wav_path, comments: list[dict]
         "heatmap": heatmap_curve(info, d),
         "comments": comment_curve(comments, d),
         "energy": energy_curve(wav_path, d) if wav_path else None,
+        "reaction": reaction_curve(wav_path, transcript["words"], d) if wav_path else None,
         "pace": pace_curve(transcript["words"], d),
     }
     return {"raw": raw, "pct": {k: to_percentiles(v) for k, v in raw.items()}}

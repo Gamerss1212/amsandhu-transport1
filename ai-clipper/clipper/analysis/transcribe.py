@@ -9,6 +9,7 @@ Transcript shape:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -41,7 +42,8 @@ def _whisper(wav: Path, model_size: str, device: str, language: str | None = Non
 
     gpu = device == "cuda" or (device == "auto" and ctranslate2.get_cuda_device_count() > 0)
     # 8-bit on CPU is several times faster than the float32 fallback with near-identical accuracy
-    model = WhisperModel(model_size, device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8")
+    model = WhisperModel(model_size, device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8",
+                         cpu_threads=min(16, os.cpu_count() or 4))
     segments, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, beam_size=5)
     # segments is lazy: the language is known before any real transcription work is done
     if language and info.language != language and info.language_probability >= 0.5:

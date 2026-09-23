@@ -150,6 +150,18 @@ def _length_score(dur: float, profile: dict | None) -> float:
     return float(max(0.0, 0.7 - abs(dur - edge) / 40.0))
 
 
+def _reaction(signals: dict, start: float, end: float) -> float | None:
+    """0-1: how strong the laughter/applause is in [start, end], relative to the rest of the video."""
+    raw = signals.get("raw", {}).get("reaction")
+    if raw is None:
+        return None
+    s, e = int(max(0, start)), int(min(len(raw), end + 1))
+    if e <= s:
+        return 0.0
+    ref = np.percentile(raw[raw > 0], 90) if np.any(raw > 0) else 0.0
+    return float(min(1.0, raw[s:e].max() / ref)) if ref > 0 else 0.0
+
+
 def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict | None) -> dict:
     """Scores the clip made of sentences i..j (inclusive)."""
     first, last = segs[i], segs[j]
@@ -185,6 +197,10 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     energy_end = window_score(signals.get("pct", {}).get("energy"), end - min(8.0, dur / 3), end)
     if energy_end is not None:
         payoff = 0.6 * payoff + 0.4 * energy_end / 100
+    # laughter / applause right after the last line is the strongest sign of a landed punchline
+    react = _reaction(signals, end - 2.0, end + 3.0)
+    if react is not None:
+        payoff = max(payoff, 0.45 + 0.55 * react)
 
     # intensity
     intense = len(INTENSE.findall(low)) / n
@@ -197,6 +213,9 @@ def score_window(segs: list[Seg], i: int, j: int, signals: dict, profile: dict |
     energy = window_score(signals.get("pct", {}).get("energy"), start, end)
     if energy is not None:
         intensity = 0.7 * intensity + 0.3 * energy / 100
+    react_inside = _reaction(signals, start + 3.0, end - 2.0)
+    if react_inside is not None:
+        intensity += 0.15 * react_inside
 
     # pace and dead air
     wps = n / dur
