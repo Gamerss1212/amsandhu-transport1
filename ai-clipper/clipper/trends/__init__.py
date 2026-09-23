@@ -24,9 +24,7 @@ def run_trend_analysis(cfg: Config, db: Database, rep: Reporter) -> dict:
         known = {v["video_id"] for v in db.load_short_videos(since)}
         got = collect_free(tcfg["free"], known,
                            progress=lambda f, m="": rep.progress("trends", 0.8 * f, m),
-                           log=lambda m: rep.info("trends", m),
-                           cookies_from_browser=cfg["analysis"].get("cookies_from_browser"),
-                           cookies_file=cfg["analysis"].get("cookies_file"))
+                           log=lambda m: rep.info("trends", m))
         rep.info("trends", f"Collected {len(got)} new short videos from free sources "
                            f"({len(known)} already stored from earlier runs)")
         fresh += got

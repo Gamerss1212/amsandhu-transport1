@@ -12,26 +12,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
 
+from .. import ytdl
+
 SHORT_FILTER = "EgIYAQ%3D%3D"  # YouTube search filter: videos under 4 minutes
 
 
-class _Silent:
-    def debug(self, msg): pass
-    def info(self, msg): pass
-    def warning(self, msg): pass
-    def error(self, msg): pass
-
-
-_COOKIES: dict = {}
-
-
 def _ydl(extra: dict | None = None):
-    import yt_dlp
-
-    return yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
-                             "ignoreerrors": True, "logger": _Silent(),
-                             "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
-                             **_COOKIES, **(extra or {})})
+    return ytdl.ydl(skip_download=True, ignoreerrors=True,
+                    extractor_args={"youtube": {"skip": ["dash", "hls"]}}, **(extra or {}))
 
 
 def sources(fcfg: dict) -> list[tuple[str, str, int]]:
@@ -94,14 +82,8 @@ def to_short(info: dict, platform: str) -> dict | None:
     }
 
 
-def collect_free(fcfg: dict, known: set[str], progress=None, log=None,
-                 cookies_from_browser: str | None = None, cookies_file: str | None = None) -> list[dict]:
+def collect_free(fcfg: dict, known: set[str], progress=None, log=None) -> list[dict]:
     """Returns normalized short videos. Videos already in `known` are not re-fetched."""
-    _COOKIES.clear()
-    if cookies_from_browser:
-        _COOKIES["cookiesfrombrowser"] = (cookies_from_browser,)
-    if cookies_file:
-        _COOKIES["cookiefile"] = cookies_file
     progress = progress or (lambda f, m="": None)
     log = log or (lambda m: None)
     workers = int(fcfg.get("workers", 8))

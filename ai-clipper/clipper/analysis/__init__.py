@@ -21,15 +21,16 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     vid = cand["video_id"]
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
     video, info = download(vid, cfg.path("paths.work_dir"),
-                           lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
-                           a.get("cookies_from_browser"), a.get("cookies_file"))
+                           lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."))
     meta = {**info, "title": info.get("title") or cand.get("title", ""),
             "channel": info.get("channel") or cand.get("channel", ""),
             "duration": float(info.get("duration") or cand.get("duration") or 0)}
 
     rep.progress("analysis", 0.2, "Transcribing the whole video (word by word)...")
+    # the built-in judge reads English; Claude (optional) handles any language
+    language = None if llm else cfg["discovery"].get("language")
     transcript = transcribe(video, a["whisper_model"], a["whisper_device"], caption_file(video),
-                            log=lambda m: rep.info("analysis", m))
+                            log=lambda m: rep.info("analysis", m), language=language)
     rep.info("analysis", f"Transcript: {len(transcript['words'])} words via {transcript['source']}")
 
     comments = []
@@ -37,8 +38,7 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         rep.progress("analysis", 0.35, "Reading viewer comments for timestamped moments...")
         try:
             comments = yt_api.comments(vid, a["max_comment_pages"]) if yt_api else \
-                ytdlp_comments(vid, 100 * a["max_comment_pages"], a.get("cookies_from_browser"),
-                               a.get("cookies_file"))
+                ytdlp_comments(vid, 100 * a["max_comment_pages"])
             rep.info("analysis", f"Read {len(comments)} comments")
         except Exception as exc:
             rep.info("analysis", f"Comments unavailable: {exc}")

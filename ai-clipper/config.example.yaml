@@ -50,7 +50,7 @@ discovery:
   use_trending_chart: true       # YouTube "most popular" chart (very cheap on quota)
   region_code: US
   language: en
-  min_duration_minutes: 15
+  min_duration_minutes: 20
   max_duration_minutes: 240
   published_within_days: 14
   min_views: 100000

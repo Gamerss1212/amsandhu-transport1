@@ -1,0 +1,82 @@
+name: Backtest AI Clipper on Windows
+
+# Runs the real AIClipper.exe end to end (trends -> YouTube discovery/download -> judge -> edit)
+# whenever ai-clipper/packaging/backtest-request.txt changes.
+on:
+  push:
+    paths: ["ai-clipper/packaging/backtest-request.txt"]
+  workflow_dispatch:
+
+env:
+  LEVEL: hard
+  MAX_MINUTES: "40"
+
+jobs:
+  ground-truth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ai-clipper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install yt-dlp yt-dlp-ejs deno curl_cffi pyyaml python-dotenv numpy scikit-learn
+      - run: python tools/collect_ground_truth.py ground_truth 25
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ground-truth
+          path: ai-clipper/ground_truth
+
+  backtest:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: ai-clipper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-clipper/requirements.txt
+
+      - name: Build AIClipper.exe
+        run: |
+          pip install -r requirements.txt pyinstaller
+          pyinstaller --noconfirm --clean AIClipper.spec
+
+      - name: Full run with the exe (no keys)
+        shell: pwsh
+        run: |
+          $cfg = @"
+          discovery:
+            max_duration_minutes: $env:MAX_MINUTES
+            videos_per_run: 1
+          analysis:
+            whisper_model: small
+          "@
+          Set-Content -Path dist\AIClipper\config.yaml -Value $cfg
+          $env:PYTHONIOENCODING = "utf-8"
+          .\dist\AIClipper\AIClipper.exe run --level $env:LEVEL *>&1 | Tee-Object -FilePath backtest.log
+          exit 0
+
+      - name: Collect results
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results | Out-Null
+          Copy-Item backtest.log results\ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse dist\AIClipper\output results\output -ErrorAction SilentlyContinue
+          Get-ChildItem -Recurse dist\AIClipper\data\work -Include analysis.json,info.json -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName ("results\" + $_.Directory.Name + "_" + $_.Name) }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backtest-results
+          path: ai-clipper/results

@@ -31,18 +31,28 @@ def group_segments(words: list[dict], max_words: int = 28, max_gap: float = 1.2)
     return segments
 
 
-def _whisper(wav: Path, model_size: str, device: str) -> dict:
+class WrongLanguage(RuntimeError):
+    pass
+
+
+def _whisper(wav: Path, model_size: str, device: str, language: str | None = None) -> dict:
+    import ctranslate2
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(model_size, device=device, compute_type="default")
-    segments, _ = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, beam_size=5)
+    gpu = device == "cuda" or (device == "auto" and ctranslate2.get_cuda_device_count() > 0)
+    # 8-bit on CPU is several times faster than the float32 fallback with near-identical accuracy
+    model = WhisperModel(model_size, device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8")
+    segments, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, beam_size=5)
+    # segments is lazy: the language is known before any real transcription work is done
+    if language and info.language != language and info.language_probability >= 0.5:
+        raise WrongLanguage(f"video is in '{info.language}', expected '{language}'")
     words = []
     for seg in segments:
         for w in seg.words or []:
             text = w.word.strip()
             if text:
                 words.append({"w": text, "s": round(w.start, 3), "e": round(w.end, 3)})
-    return {"source": "whisper", "words": words, "segments": group_segments(words)}
+    return {"source": "whisper", "language": info.language, "words": words, "segments": group_segments(words)}
 
 
 def parse_json3(path: Path) -> dict:
@@ -65,14 +75,16 @@ def parse_json3(path: Path) -> dict:
 
 
 def transcribe(video: Path, model_size: str = "small", device: str = "auto",
-               captions: Path | None = None, log=None) -> dict:
+               captions: Path | None = None, log=None, language: str | None = None) -> dict:
     cache = video.parent / "transcript.json"
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
     result = None
     try:
         wav = extract_audio(video, video.parent / "audio16k.wav")
-        result = _whisper(wav, model_size, device)
+        result = _whisper(wav, model_size, device, language)
+    except WrongLanguage:
+        raise
     except ImportError:
         if log:
             log("faster-whisper not installed - falling back to YouTube captions")

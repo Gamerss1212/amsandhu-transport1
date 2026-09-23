@@ -63,4 +63,7 @@ def load_config(path: str | Path | None = None) -> Config:
     for key in ("paths.work_dir", "paths.output_dir"):
         cfg.path(key).mkdir(parents=True, exist_ok=True)
     cfg.path("paths.db").parent.mkdir(parents=True, exist_ok=True)
+    from . import ytdl
+
+    ytdl.configure(cfg)
     return cfg

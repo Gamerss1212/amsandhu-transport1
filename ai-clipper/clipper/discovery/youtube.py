@@ -7,15 +7,20 @@ Sources, best first:
 """
 from __future__ import annotations
 
+import base64
 import math
 import re
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from urllib.parse import quote, quote_plus
 
 import numpy as np
 import requests
 
+from .. import ytdl
 from ..events import Event
 from ..trends.analyzer import pct_rank, trend_fit
 
@@ -136,24 +141,72 @@ def poll_rss(channel_id: str) -> list[dict]:
     return out
 
 
-def ytdlp_search(query: str, limit: int) -> list[dict]:
-    import yt_dlp
+def mostly_other_script(title: str) -> bool:
+    """True when many letters in the title are not Latin (e.g. Devanagari, Cyrillic, Arabic)."""
+    letters = [ch for ch in title if ch.isalpha()]
+    other = sum(not ch.isascii() and "LATIN" not in unicodedata.name(ch, "") for ch in letters)
+    return bool(letters) and other / len(letters) > 0.3
 
-    opts = {"quiet": True, "extract_flat": "in_playlist", "skip_download": True, "noprogress": True}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+
+def search_filter(within_days: float, long_only: bool) -> str:
+    """YouTube's `sp` search filter: uploaded within a period, videos only, optionally > 20 min."""
+    period = 2 if within_days <= 1 else 3 if within_days <= 7 else 4 if within_days <= 31 else 5
+    raw = bytes([0x08, period, 0x10, 0x01] + ([0x18, 0x02] if long_only else []))
+    return quote(base64.b64encode(bytes([0x12, len(raw)]) + raw).decode())
+
+
+def ytdlp_search(query: str, limit: int, within_days: float | None = None, long_only: bool = False) -> list[dict]:
+    """Search without an API key. `published` is 0 when YouTube's listing doesn't say."""
+    if within_days is None and not long_only:
+        url = f"ytsearch{limit}:{query}"
+    else:
+        url = (f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+               f"&sp={search_filter(within_days or 3650, long_only)}")
+    with ytdl.ydl(extract_flat="in_playlist", skip_download=True, playlistend=limit, ignoreerrors=True) as y:
+        info = y.extract_info(url, download=False) or {}
     out = []
     for e in info.get("entries", []) or []:
-        if not e or not e.get("id"):
+        if not e or not e.get("id") or e.get("ie_key", "Youtube") != "Youtube":
             continue
         out.append({
             "video_id": e["id"], "title": e.get("title", ""), "description": e.get("description") or "",
             "channel": e.get("channel") or e.get("uploader") or "", "channel_id": e.get("channel_id") or "",
-            "published": float(e.get("timestamp") or 0) or time.time() - 7 * 86400,
+            "published": float(e.get("timestamp") or 0),
             "duration": float(e.get("duration") or 0), "views": float(e.get("view_count") or 0),
             "likes": 0.0, "comments": 0.0, "live": e.get("live_status") == "is_live",
         })
     return out
+
+
+def ytdlp_enrich(cands: list[dict], workers: int = 4) -> None:
+    """Fills real upload date, likes, comments and subscriber count (in place) without an API key."""
+
+    def one(c: dict) -> None:
+        try:
+            with ytdl.ydl(skip_download=True, extractor_args={"youtube": {"skip": ["dash", "hls"]}}) as y:
+                info = y.extract_info(f"https://www.youtube.com/watch?v={c['video_id']}", download=False)
+        except Exception:
+            return
+        if not info:
+            return
+        d = info.get("upload_date")
+        if info.get("timestamp"):
+            c["published"] = float(info["timestamp"])
+        elif d and re.fullmatch(r"\d{8}", str(d)):
+            c["published"] = datetime.strptime(d, "%Y%m%d").replace(tzinfo=timezone.utc).timestamp()
+        c["likes"] = float(info.get("like_count") or 0)
+        c["comments"] = float(info.get("comment_count") or 0)
+        c["subscribers"] = float(info.get("channel_follower_count") or 0)
+        c["views"] = float(info.get("view_count") or c["views"])
+        c["duration"] = float(info.get("duration") or c["duration"])
+        c["description"] = info.get("description") or c.get("description", "")
+        c["channel"] = info.get("channel") or c.get("channel", "")
+        c["channel_id"] = info.get("channel_id") or c.get("channel_id", "")
+        c["has_heatmap"] = bool(info.get("heatmap"))
+        c["enriched"] = True
+
+    with ThreadPoolExecutor(workers) as ex:
+        list(ex.map(one, cands))
 
 
 def rank_candidates(cands: list[dict], profile: dict | None, now: float | None = None) -> list[dict]:
@@ -169,8 +222,9 @@ def rank_candidates(cands: list[dict], profile: dict | None, now: float | None =
                     for c in cands])
     fresh = np.array([1.0 if c.get("source") == "watchlist" and now - c["published"] < 48 * 3600 else 0.0
                       for c in cands])
+    heat = np.array([1.0 if c.get("has_heatmap") else 0.0 for c in cands])  # "most replayed" data helps
     score = (0.30 * pct_rank(np.log10(views / age_h)) + 0.20 * pct_rank(np.log10(views))
-             + 0.10 * pct_rank(eng) + 0.10 * pct_rank(subs) + 0.20 * fit + 0.10 * fresh)
+             + 0.10 * pct_rank(eng) + 0.10 * pct_rank(subs) + 0.20 * fit + 0.10 * fresh + 0.05 * heat) / 1.05
     for c, s in zip(cands, score):
         c["rank_score"] = round(float(s) * 100, 1)
     return sorted(cands, key=lambda c: -c["rank_score"])
@@ -226,12 +280,27 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
             v["source"] = "watchlist" if v["video_id"] in watch_ids else "search"
             cands[v["video_id"]] = v
     else:
-        rep.info("discovery", "YOUTUBE_API_KEY not set - using yt-dlp search (fewer signals)")
+        rep.info("discovery", "Free YouTube search (no key needed)")
+        long_only = d["min_duration_minutes"] >= 20
         for q in d["search_queries"]:
-            rep.progress("discovery", 0.5, f"Searching YouTube: {q}")
-            for v in ytdlp_search(q, 25):
+            rep.progress("discovery", 0.4, f"Searching YouTube: {q}")
+            try:
+                found = ytdlp_search(q, 40, d["published_within_days"], long_only)
+            except Exception as exc:
+                rep.info("discovery", f"Search '{q}' failed: {exc}")
+                found = []
+            for v in found:
                 v["source"] = "search"
                 cands.setdefault(v["video_id"], v)
+        # the listing has no dates/likes: read them for the most promising videos
+        lo_s = d["min_duration_minutes"] * 60
+        pool = sorted((c for c in cands.values() if c["duration"] >= lo_s and not db.is_processed(c["video_id"])),
+                      key=lambda c: -c["views"])[: max(12, 4 * d["videos_per_run"])]
+        rep.progress("discovery", 0.7, f"Checking upload dates and engagement for {len(pool)} videos...")
+        ytdlp_enrich(pool)
+        for c in cands.values():
+            if not c["published"]:  # search was limited to the time window, so assume mid-window
+                c["published"] = now - d["published_within_days"] * 86400 / 2
         for vid in watch_ids:
             cands.setdefault(vid, {"video_id": vid, "title": "", "description": "", "channel": "",
                                    "channel_id": "", "published": now, "duration": 0.0, "views": 0.0,
@@ -246,6 +315,10 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
         if not unknown_len and not lo <= c["duration"] <= hi:
             continue
         if c["source"] != "watchlist" and c["views"] < d["min_views"]:
+            continue
+        if c["source"] != "watchlist" and c["published"] < after:
+            continue
+        if c["source"] != "watchlist" and d.get("language") == "en" and mostly_other_script(c.get("title", "")):
             continue
         kept.append(c)
 
