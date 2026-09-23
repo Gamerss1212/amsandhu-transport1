@@ -46,7 +46,10 @@ discovery:
   # Channels to watch in real time (channel IDs start with UC...).
   watch_channels: []
   #  - UCzQUP1qoWDoEbmsQxvdjxgQ   # example
-  search_queries: [podcast full episode, interview full episode, long form podcast]
+  search_queries: [podcast full episode, podcast episode interview, comedy podcast full episode]
+  # Skip videos whose title contains any of these (news broadcasts, music, etc. make poor clips).
+  exclude_title_words: [news, broadcast, nightly, good morning america, live stream, livestream, full game,
+                        audiobook, full movie, full album, sermon, asmr, sleep music, white noise]
   use_trending_chart: true       # YouTube "most popular" chart (very cheap on quota)
   region_code: US
   language: en

@@ -250,7 +250,8 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
 def write_post_files(out_dir: Path, name: str, clip: dict, render_info: dict, source: dict) -> None:
     tags = " ".join("#" + t for t in clip.get("hashtags", []))
     caption = f"{clip.get('caption') or clip.get('title', '')}\n\n{tags}".strip()
-    credit = f"\n\nCredit: {source.get('channel', '')} - youtube.com/watch?v={source.get('id', '')}"
+    link = source.get("webpage_url") or f"youtube.com/watch?v={source.get('id', '')}"
+    credit = f"\n\nCredit: {source.get('channel') or source.get('title', '')} - {link}"
     (out_dir / f"{name}.txt").write_text(caption + credit + "\n", encoding="utf-8")
     meta = {"name": name, **render_info, "clip": clip, "post_caption": caption + credit,
             "source": {"id": source.get("id"), "title": source.get("title"), "channel": source.get("channel")}}

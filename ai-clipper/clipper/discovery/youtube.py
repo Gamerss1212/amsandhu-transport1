@@ -320,6 +320,10 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
             continue
         if c["source"] != "watchlist" and d.get("language") == "en" and mostly_other_script(c.get("title", "")):
             continue
+        title = c.get("title", "").lower()
+        if c["source"] != "watchlist" and any(re.search(rf"\b{re.escape(w.lower())}\b", title)
+                                              for w in d.get("exclude_title_words", [])):
+            continue
         kept.append(c)
 
     ranked = rank_candidates(kept, profile, now)

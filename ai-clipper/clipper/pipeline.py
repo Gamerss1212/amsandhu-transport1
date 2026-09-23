@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from .analysis import analyze_video, clip_words
+from .analysis.download import source_key
 from .analysis.signals import peaks
 from .config import Config
 from .db import Database
@@ -15,6 +16,7 @@ from .editing import RenderJob, get_preset, render, write_post_files
 from .events import Event, Reporter
 from .llm import Claude
 from .trends import run_trend_analysis
+from .ytdl import BotCheck
 
 
 def slug(text: str, n: int = 40) -> str:
@@ -38,55 +40,22 @@ class Pipeline:
 
     def run(self, level: str | None = None) -> list[dict]:
         """Everything that happens after pressing "Get clips"."""
+        return self._guarded(level, None)
+
+    def clip_video(self, source: str, level: str | None = None) -> list[dict]:
+        """Clip one video you choose: a YouTube link, any other video link, or a video file."""
+        return self._guarded(level, source.strip().strip('"'))
+
+    def _guarded(self, level: str | None, source: str | None) -> list[dict]:
         if not self.lock.acquire(blocking=False):
             raise RuntimeError("A run is already in progress")
         self.running = True
         started = time.time()
-        produced: list[dict] = []
         try:
-            level = level or self.cfg["editing"]["default_level"]
-            preset = get_preset(level)
-            rep = self.rep
-
-            # ---- Step 1: what goes viral right now (fresh every run)
-            rep.info("trends", "Step 1/3 - analyzing 1000+ short-form videos for what goes viral")
-            profile = run_trend_analysis(self.cfg, self.db, rep)
-
-            # ---- Step 2: find long-form videos and watch them fully
-            rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
-            candidates = discover(self.cfg, self.db, rep, profile)
-            if not candidates:
-                raise RuntimeError("No suitable long-form videos found - widen discovery settings")
-
-            llm = self._llm()
-            yt = YouTubeAPI(self.cfg.youtube_key) if self.cfg.youtube_key else None
-            wanted = self.cfg["discovery"]["videos_per_run"]
-            done = 0
-            for cand in candidates[: wanted * 3]:
-                if done >= wanted:
-                    break
-                rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}")
-                try:
-                    result = analyze_video(cand, self.cfg, rep, profile, llm, yt)
-                except Exception as exc:
-                    rep.error("analysis", f"Skipping {cand['video_id']}: {exc}")
-                    self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
-                    continue
-                if not result["clips"]:
-                    rep.info("analysis", "Nothing in this video passed the strict review - trying the next one")
-                    self.db.mark_processed(cand["video_id"], result["meta"]["title"], "no_clips")
-                    continue
-
-                # ---- Step 3: edit
-                rep.info("editing", f"Step 3/3 - editing {len(result['clips'])} clips at level '{preset.name}'")
-                clips = self._edit(result, preset)
-                produced += clips
-                self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done", len(clips))
-                done += 1
-
+            produced = self._run(level, source)
             minutes = (time.time() - started) / 60
-            rep.emit(Event("done", "editing", f"Finished: {len(produced)} clips in {minutes:.1f} min",
-                           data={"clips": produced}))
+            self.rep.emit(Event("done", "editing", f"Finished: {len(produced)} clips in {minutes:.1f} min",
+                                data={"clips": produced}))
             return produced
         except Exception as exc:
             self.rep.emit(Event("error", "pipeline", str(exc)))
@@ -94,6 +63,65 @@ class Pipeline:
         finally:
             self.running = False
             self.lock.release()
+
+    def _run(self, level: str | None, source: str | None) -> list[dict]:
+        level = level or self.cfg["editing"]["default_level"]
+        preset = get_preset(level)
+        rep = self.rep
+
+        if source:
+            profile = self.db.latest_profile()
+            rep.info("analysis", "Clipping the video you chose" +
+                     (" (using the latest trend analysis)" if profile else ""))
+            candidates = [{"video_id": source_key(source), "input": source, "title": "", "channel": ""}]
+            wanted = 1
+        else:
+            # ---- Step 1: what goes viral right now (fresh every run)
+            rep.info("trends", "Step 1/3 - analyzing 1000+ short-form videos for what goes viral")
+            profile = run_trend_analysis(self.cfg, self.db, rep)
+            # ---- Step 2: find long-form videos and watch them fully
+            rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
+            candidates = discover(self.cfg, self.db, rep, profile)
+            if not candidates:
+                raise RuntimeError("No suitable long-form videos found - widen discovery settings")
+            wanted = self.cfg["discovery"]["videos_per_run"]
+
+        llm = self._llm()
+        yt = YouTubeAPI(self.cfg.youtube_key) if self.cfg.youtube_key else None
+        produced: list[dict] = []
+        done = blocked = 0
+        for cand in candidates[: wanted * 3]:
+            if done >= wanted:
+                break
+            rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
+                     if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
+            try:
+                result = analyze_video(cand, self.cfg, rep, profile, llm, yt)
+            except BotCheck as exc:
+                blocked += 1
+                rep.error("analysis", str(exc))
+                if blocked >= 2 or source:
+                    raise RuntimeError(str(exc)) from exc
+                continue
+            except Exception as exc:
+                rep.error("analysis", f"Skipping {cand['video_id']}: {exc}")
+                if source:
+                    raise
+                self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
+                continue
+            if not result["clips"]:
+                rep.info("analysis", "Nothing in this video passed the strict review" +
+                         ("" if source else " - trying the next one"))
+                self.db.mark_processed(cand["video_id"], result["meta"]["title"], "no_clips")
+                continue
+
+            # ---- Step 3: edit
+            rep.info("editing", f"Step 3/3 - editing {len(result['clips'])} clips at level '{preset.name}'")
+            clips = self._edit(result, preset)
+            produced += clips
+            self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done", len(clips))
+            done += 1
+        return produced
 
     def _edit(self, result: dict, preset) -> list[dict]:
         meta, clips = result["meta"], result["clips"]

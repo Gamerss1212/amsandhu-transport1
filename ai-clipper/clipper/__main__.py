@@ -2,6 +2,7 @@
 
   python -m clipper            start the web app (the one-button UI)
   python -m clipper run        run the whole pipeline once from the terminal
+  python -m clipper clip URL   clip one video you choose (a link or a video file)
   python -m clipper watch      watch channels for new uploads in real time
   python -m clipper doctor     check keys, tools and settings
 """
@@ -24,6 +25,9 @@ def main() -> None:
     serve.add_argument("--port", type=int, default=8000)
     run = sub.add_parser("run", help="run the pipeline once")
     run.add_argument("--level", choices=LEVEL_NAMES)
+    clip = sub.add_parser("clip", help="clip one video: a YouTube/other link or a video file")
+    clip.add_argument("source")
+    clip.add_argument("--level", choices=LEVEL_NAMES)
     watch = sub.add_parser("watch", help="poll watched channels for new uploads")
     watch.add_argument("--auto-clip", action="store_true", help="run the pipeline when a new upload appears")
     watch.add_argument("--level", choices=LEVEL_NAMES)
@@ -42,10 +46,11 @@ def main() -> None:
         print(f"AI Clipper running at http://{getattr(args, 'host', '127.0.0.1')}:{getattr(args, 'port', 8000)}")
         uvicorn.run(create_app(cfg), host=getattr(args, "host", "127.0.0.1"),
                     port=getattr(args, "port", 8000), log_level="warning")
-    elif cmd == "run":
+    elif cmd in ("run", "clip"):
         from .pipeline import Pipeline
 
-        clips = Pipeline(cfg).run(args.level)
+        pipe = Pipeline(cfg)
+        clips = pipe.run(args.level) if cmd == "run" else pipe.clip_video(args.source, args.level)
         for c in clips:
             print(f"{c['score']:>5}  {cfg.path('paths.output_dir') / c['folder'] / c['video']}")
     elif cmd == "watch":

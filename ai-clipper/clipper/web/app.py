@@ -33,6 +33,11 @@ class RunRequest(BaseModel):
     level: str | None = None
 
 
+class ClipRequest(BaseModel):
+    source: str
+    level: str | None = None
+
+
 def create_app(cfg: Config) -> FastAPI:
     rep = Reporter()
     pipe = Pipeline(cfg, rep)
@@ -88,6 +93,25 @@ def create_app(cfg: Config) -> FastAPI:
         def job() -> None:
             try:
                 pipe.run(level)
+            except Exception:
+                pass  # already reported as an error event
+
+        threading.Thread(target=job, daemon=True, name="pipeline").start()
+        return {"started": True, "level": level}
+
+    @app.post("/api/clip")
+    def clip(req: ClipRequest) -> dict:
+        if pipe.running:
+            raise HTTPException(409, "Already running")
+        level = req.level or cfg["editing"]["default_level"]
+        if level not in LEVEL_NAMES:
+            raise HTTPException(400, f"Unknown level {level}")
+        if not req.source.strip():
+            raise HTTPException(400, "Paste a video link or a file path")
+
+        def job() -> None:
+            try:
+                pipe.clip_video(req.source, level)
             except Exception:
                 pass  # already reported as an error event
 

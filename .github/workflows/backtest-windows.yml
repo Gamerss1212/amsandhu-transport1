@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  LEVEL: hard
+  LEVEL: professional
   MAX_MINUTES: "40"
 
 jobs:
@@ -51,15 +51,24 @@ jobs:
           pip install -r requirements.txt pyinstaller
           pyinstaller --noconfirm --clean AIClipper.spec
 
-      - name: Full run with the exe (no keys)
+      - name: Clip real videos with the exe (no keys)
+        shell: pwsh
+        run: |
+          $env:PYTHONIOENCODING = "utf-8"
+          $exe = ".\dist\AIClipper\AIClipper.exe"
+          & $exe doctor *>&1 | Tee-Object -FilePath doctor.log
+          # a 13-minute interview at the highest level, then an hour-long comedy show
+          & $exe clip "https://archive.org/details/George_Soros_1998_60_Minutes_Interview" --level extreme *>&1 | Tee-Object -FilePath clip_interview.log
+          & $exe clip "https://archive.org/download/Norm_Macdonald_Live/Norm%20Macdonald%20Live%20-%20S01E02%20-%20Norm%20Macdonald%20with%20Guest%20Tom%20Green.mp4" --level $env:LEVEL *>&1 | Tee-Object -FilePath clip_comedy.log
+          exit 0
+
+      - name: Full one-button run with the exe (no keys)
         shell: pwsh
         run: |
           $cfg = @"
           discovery:
             max_duration_minutes: $env:MAX_MINUTES
             videos_per_run: 1
-          analysis:
-            whisper_model: small
           "@
           Set-Content -Path dist\AIClipper\config.yaml -Value $cfg
           $env:PYTHONIOENCODING = "utf-8"
@@ -71,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force results | Out-Null
-          Copy-Item backtest.log results\ -ErrorAction SilentlyContinue
+          Copy-Item *.log results\ -ErrorAction SilentlyContinue
           Copy-Item -Recurse dist\AIClipper\output results\output -ErrorAction SilentlyContinue
           Get-ChildItem -Recurse dist\AIClipper\data\work -Include analysis.json,info.json -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName ("results\" + $_.Directory.Name + "_" + $_.Name) }
 

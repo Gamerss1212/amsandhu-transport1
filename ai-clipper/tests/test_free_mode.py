@@ -121,3 +121,83 @@ def test_full_run_without_keys(cfg, monkeypatch):
     assert len(clips) == 1
     listed = list_outputs(cfg.path("paths.output_dir"))
     assert listed[0]["title"].startswith("Nobody talks about the day I lost everything")
+
+
+def test_source_key():
+    from clipper.analysis.download import source_key
+
+    assert source_key("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    assert source_key("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=5") == "dQw4w9WgXcQ"
+    assert source_key("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    k = source_key(r"C:\Users\me\Videos\my podcast.mp4")
+    assert k.startswith("my_podcast_") and k == source_key(r"C:\Users\me\Videos\my podcast.mp4")
+
+
+def test_login_fallback(monkeypatch):
+    import pytest
+
+    from clipper import ytdl
+
+    monkeypatch.setattr(ytdl, "_configured_login", False)
+    calls = []
+
+    def fn():
+        calls.append(dict(ytdl._cookies))
+        if ytdl._cookies.get("cookiesfrombrowser") != ("edge",):
+            raise RuntimeError("ERROR: Sign in to confirm you're not a bot")
+        return "ok"
+
+    assert ytdl.with_login_fallback(fn) == "ok"
+    assert calls[0] == {} and ytdl._cookies == {"cookiesfrombrowser": ("edge",)}
+    ytdl._cookies.clear()
+    with pytest.raises(ytdl.BotCheck, match="signed in"):
+        ytdl.with_login_fallback(lambda: (_ for _ in ()).throw(RuntimeError("HTTP Error 429")))
+    with pytest.raises(ValueError):
+        ytdl.with_login_fallback(lambda: (_ for _ in ()).throw(ValueError("other problem")))
+
+
+def test_clip_a_video_file(cfg, tmp_path, monkeypatch):
+    from clipper.analysis.download import source_key
+
+    t = transcript()
+    duration = t["words"][-1]["e"] + 2
+    src = tmp_path / "My Podcast Ep 1.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"testsrc2=s=640x360:r=30:d={duration}", "-f", "lavfi", "-i", f"sine=f=200:d={duration}",
+                    "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", str(src)], check=True)
+    work = cfg.path("paths.work_dir") / source_key(str(src))
+    work.mkdir(parents=True)
+    (work / "transcript.json").write_text(json.dumps({"source": "test", **t}))  # skip Whisper in tests
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
+
+    clips = Pipeline(cfg).clip_video(f'"{src}"', "simple")  # quotes from "Copy as path" are fine
+
+    assert len(clips) == 1
+    listed = list_outputs(cfg.path("paths.output_dir"))
+    assert "My Podcast Ep 1" in listed[0]["caption"]
+
+
+def test_web_clip_endpoint(cfg):
+    from fastapi.testclient import TestClient
+
+    from clipper.web.app import create_app
+
+    client = TestClient(create_app(cfg))
+    assert client.post("/api/clip", json={"source": "  "}).status_code == 400
+    assert client.post("/api/clip", json={"source": "x", "level": "ultra"}).status_code == 400
+    assert "Clip this video" in client.get("/").text
+
+
+def test_news_broadcasts_are_skipped(cfg, monkeypatch):
+    from clipper.discovery import youtube
+
+    now = __import__("time").time()
+    base = {"description": "", "channel": "c", "channel_id": "", "published": now - 86400, "duration": 3600,
+            "views": 5e6, "likes": 0.0, "comments": 0.0, "live": False}
+    found = [{**base, "video_id": "a" * 11, "title": "ABC World News Tonight Full Broadcast"},
+             {**base, "video_id": "b" * 11, "title": "Theo Von podcast full episode"}]
+    monkeypatch.setattr(youtube, "ytdlp_search", lambda *a, **k: found)
+    monkeypatch.setattr(youtube, "ytdlp_enrich", lambda cands: None)
+    ranked = youtube.discover(cfg, Database(cfg.path("paths.db")), Reporter(), None)
+    assert [c["video_id"] for c in ranked] == ["b" * 11]

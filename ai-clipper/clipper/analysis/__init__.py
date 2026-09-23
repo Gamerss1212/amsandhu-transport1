@@ -20,8 +20,9 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     a = cfg["analysis"]
     vid = cand["video_id"]
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
-    video, info = download(vid, cfg.path("paths.work_dir"),
-                           lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."))
+    video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
+                           lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
+                           log=lambda m: rep.info("analysis", m))
     meta = {**info, "title": info.get("title") or cand.get("title", ""),
             "channel": info.get("channel") or cand.get("channel", ""),
             "duration": float(info.get("duration") or cand.get("duration") or 0)}

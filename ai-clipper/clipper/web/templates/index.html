@@ -32,6 +32,12 @@
   #go { width: 100%; margin-top: 16px; padding: 20px; border: 0; border-radius: 12px; cursor: pointer;
         background: var(--accent); color: #000; font-size: 22px; font-weight: 800; letter-spacing: .04em; }
   #go:disabled { opacity: .45; cursor: progress; }
+  .one { display: flex; gap: 8px; margin-top: 12px; }
+  .one input { flex: 1; min-width: 0; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line);
+               background: transparent; color: inherit; font: inherit; font-size: 14px; }
+  .one button { padding: 11px 14px; border-radius: 10px; border: 1px solid var(--line); background: transparent;
+                color: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .one button:disabled { opacity: .45; cursor: progress; }
   .keys { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; }
   .pill { padding: 3px 9px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); }
   .pill.ok { color: var(--good); } .pill.no { color: var(--bad); }
@@ -73,6 +79,10 @@
       <h2>Editing level</h2>
       <div class="levels" id="levels"></div>
       <button id="go">GET CLIPS</button>
+      <div class="one">
+        <input id="src" placeholder="…or paste a video link (YouTube or other) or a file path" autocomplete="off">
+        <button id="clipone">Clip this video</button>
+      </div>
       <div class="keys" id="keys"></div>
       <div class="steps">
         <div class="step" id="s-trends"><div class="name">1 · Viral trends</div><div class="msg">Waiting</div><div class="bar"><i></i></div></div>
@@ -113,6 +123,7 @@ async function loadStatus() {
     + Object.entries(st.keys).filter(([k, ok]) => ok && k !== "anthropic").map(([k]) => `<span class="pill ok">${k} extra on</span>`).join("")
     + `<span class="pill">${st.watch_channels} watched channels</span>`;
   $("go").disabled = st.running;
+  $("clipone").disabled = st.running;
   if (st.trends) {
     const t = st.trends;
     $("trend").classList.remove("empty");
@@ -178,6 +189,16 @@ $("go").onclick = async () => {
   const r = await fetch("/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({level})});
   if (!r.ok) { alert((await r.json()).detail); $("go").disabled = false; }
 };
+
+$("clipone").onclick = async () => {
+  const source = $("src").value.trim();
+  if (!source) { $("src").focus(); return; }
+  $("go").disabled = $("clipone").disabled = true;
+  document.querySelectorAll(".bar i").forEach((b) => b.style.width = "0");
+  const r = await fetch("/api/clip", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({level, source})});
+  if (!r.ok) { alert((await r.json()).detail); $("go").disabled = $("clipone").disabled = false; }
+};
+$("src").onkeydown = (e) => { if (e.key === "Enter") $("clipone").click(); };
 
 loadStatus(); loadClips(); loadUploads(); listen();
 setInterval(loadUploads, 60000);
