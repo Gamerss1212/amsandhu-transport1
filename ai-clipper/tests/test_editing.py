@@ -109,3 +109,10 @@ def test_builtin_assets_are_generated_once(tmp_path):
     assert builtin("music", tmp_path).stat().st_mtime == stamp  # cached, not regenerated
     clip = make_broll(tmp_path / "b.mp4", seconds=2)
     assert probe(clip)["width"] == 540 and abs(probe(clip)["duration"] - 2) < 0.2
+
+
+def test_srt_and_hook_time():
+    from clipper.editing.captions import build_srt, hook_time
+    srt = build_srt(WORDS, 3)
+    assert srt.startswith("1\n00:00:0") and " --> " in srt
+    assert hook_time("short hook") == 2.2 and hook_time("word " * 40) == 4.0

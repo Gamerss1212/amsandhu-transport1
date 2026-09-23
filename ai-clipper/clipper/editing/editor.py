@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ..media import extract_frame, probe, run_ffmpeg
 from .builtin_assets import builtin
-from .captions import build_ass
+from .captions import build_ass, build_srt
 from .fonts import size_scale
 from .safety import censor
 from .levels import Preset
@@ -283,9 +283,10 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", str(partial)])
     os.replace(partial, out)
 
+    (job.out_dir / f"{job.name}.srt").write_text(build_srt(words), encoding="utf-8")
     thumb = extract_frame(out, min(1.2, duration / 2), job.out_dir / f"{job.name}.jpg", width=W)
     shutil.rmtree(work, ignore_errors=True)
-    return {"video": out.name, "thumbnail": thumb.name, "duration": round(duration, 2),
+    return {"video": out.name, "thumbnail": thumb.name, "subtitles": f"{job.name}.srt", "duration": round(duration, 2),
             "layout": layout, "jump_cuts": len(ranges) - 1, "zooms": len(zooms),
             "music": music.name if music else None, "broll": broll.name if broll else None}
 

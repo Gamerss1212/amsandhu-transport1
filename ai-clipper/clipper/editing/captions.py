@@ -44,9 +44,28 @@ def group_words(words: list[dict], per_group: int, max_gap: float = 0.6) -> list
     return groups
 
 
+def build_srt(words: list[dict], per_group: int = 6) -> str:
+    """Plain subtitles for re-uploading captions (YouTube Shorts, Instagram, editors)."""
+    def t(x: float) -> str:
+        ms = int(round(max(0.0, x) * 1000))
+        h, ms = divmod(ms, 3600000)
+        m, ms = divmod(ms, 60000)
+        sec, ms = divmod(ms, 1000)
+        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+    words = [w for w in words if not is_filler(w["w"])]
+    blocks = [f"{i}\n{t(g[0]['s'])} --> {t(g[-1]['e'] + 0.1)}\n{' '.join(clean(w['w']) for w in g)}\n"
+              for i, g in enumerate(group_words(words, per_group), 1)]
+    return "\n".join(blocks)
+
+
+def hook_time(hook: str) -> float:
+    """Long enough to read the hook: ~0.28 s per word, between 2.2 and 4 s."""
+    return min(4.0, max(2.2, 0.8 + 0.28 * len(hook.split())))
+
+
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
-              hook: str | None = None, caption_y: int = 1380, hook_seconds: float = 2.8,
+              hook: str | None = None, caption_y: int = 1380, hook_seconds: float | None = None,
               size_scale: float = 1.0, emphasis_pop: bool = False) -> str:
     """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts."""
     words = [w for w in words if not is_filler(w["w"])]
@@ -118,5 +137,5 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if hook:
         # hook card drops in with an overshoot, holds, then fades
         anim = "{\\fad(80,250)\\fscx60\\fscy60\\frz-4\\t(0,160,\\fscx108\\fscy108\\frz2)\\t(160,260,\\fscx100\\fscy100\\frz0)}"
-        add(0.0, min(hook_seconds, duration), anim + clean(hook).upper(), "Hook", layer=1)
+        add(0.0, min(hook_seconds or hook_time(hook), duration), anim + clean(hook).upper(), "Hook", layer=1)
     return header + "\n".join(events) + "\n"
