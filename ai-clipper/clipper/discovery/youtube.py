@@ -149,20 +149,27 @@ def mostly_other_script(title: str) -> bool:
     return bool(letters) and other / len(letters) > 0.3
 
 
-def search_filter(within_days: float, long_only: bool) -> str:
-    """YouTube's `sp` search filter: uploaded within a period, videos only, optionally > 20 min."""
+LENGTH_CODE = {"long": 0x02, "medium": 0x03}  # YouTube's length filter: long > 20 min, medium 4-20 min
+
+
+def search_filter(within_days: float, length: str | bool | None = None) -> str:
+    """YouTube's `sp` search filter: uploaded within a period, videos only, optionally by length."""
+    if length is True:
+        length = "long"
     period = 2 if within_days <= 1 else 3 if within_days <= 7 else 4 if within_days <= 31 else 5
-    raw = bytes([0x08, period, 0x10, 0x01] + ([0x18, 0x02] if long_only else []))
+    raw = bytes([0x08, period, 0x10, 0x01] + ([0x18, LENGTH_CODE[length]] if length else []))
     return quote(base64.b64encode(bytes([0x12, len(raw)]) + raw).decode())
 
 
-def ytdlp_search(query: str, limit: int, within_days: float | None = None, long_only: bool = False) -> list[dict]:
-    """Search without an API key. `published` is 0 when YouTube's listing doesn't say."""
-    if within_days is None and not long_only:
+def ytdlp_search(query: str, limit: int, within_days: float | None = None,
+                 length: str | bool | None = None) -> list[dict]:
+    """Search without an API key. `published` is 0 when YouTube's listing doesn't say.
+    length: None, "medium" (4-20 min) or "long" (over 20 min)."""
+    if within_days is None and not length:
         url = f"ytsearch{limit}:{query}"
     else:
         url = (f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-               f"&sp={search_filter(within_days or 3650, long_only)}")
+               f"&sp={search_filter(within_days or 3650, length)}")
     with ytdl.ydl(extract_flat="in_playlist", skip_download=True, playlistend=limit, ignoreerrors=True) as y:
         info = y.extract_info(url, download=False) or {}
     out = []
@@ -283,14 +290,16 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None) 
             cands[v["video_id"]] = v
     else:
         rep.info("discovery", "Free YouTube search (no key needed)")
-        long_only = d["min_duration_minutes"] >= 20
+        # 10-20 minute videos come from the "medium" filter, everything longer from "long"
+        lengths = ["long"] if d["min_duration_minutes"] >= 20 else ["long", "medium"]
         for q in random.sample(d["search_queries"], len(d["search_queries"])):  # a different order every run
             rep.progress("discovery", 0.4, f"Searching YouTube: {q}")
-            try:
-                found = ytdlp_search(q, 40, d["published_within_days"], long_only)
-            except Exception as exc:
-                rep.info("discovery", f"Search '{q}' failed: {exc}")
-                found = []
+            found = []
+            for length in lengths:
+                try:
+                    found += ytdlp_search(q, 40 if length == "long" else 20, d["published_within_days"], length)
+                except Exception as exc:
+                    rep.info("discovery", f"Search '{q}' ({length}) failed: {exc}")
             for v in found:
                 v["source"] = "search"
                 cands.setdefault(v["video_id"], v)

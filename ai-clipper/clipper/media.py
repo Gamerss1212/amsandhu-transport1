@@ -21,6 +21,26 @@ def ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def ensure_ffmpeg_on_path(bin_dir: Path) -> None:
+    """yt-dlp's partial downloads (just one clip of a very long video) look for a program literally
+    named ffmpeg on PATH; the bundled one has a versioned file name, so expose it under that name."""
+    import os
+    import sys
+
+    if shutil.which("ffmpeg"):
+        return
+    exe = ffmpeg_exe()
+    name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+    target = bin_dir / name
+    if not target.exists():
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(exe, target)
+        except OSError:
+            shutil.copy2(exe, target)
+    os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
+
 def run_ffmpeg(args: list[str], timeout: float | None = None) -> str:
     cmd = [ffmpeg_exe(), "-hide_banner", "-y", *args]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -56,22 +76,61 @@ def extract_audio(video: Path, out_wav: Path, sr: int = 16000) -> Path:
     return out_wav
 
 
-def frame_power(path: Path, hop: float = 0.1) -> tuple[np.ndarray, float]:
-    """Mean square level of every `hop`-second frame, read in pieces so even a 30-hour
-    video's audio never has to fit in memory at once."""
-    with wave.open(str(path), "rb") as w:
-        sr = w.getframerate()
-        step = int(sr * hop)
-        per_read = step * 600  # one minute at a time
-        out = []
+LONG_AUDIO_HOURS = 3.0  # longer than this, audio is streamed from the source instead of copied to a .wav
+
+
+def media_seconds(path: Path) -> float:
+    if path.suffix.lower() == ".wav":
+        with wave.open(str(path), "rb") as w:
+            return w.getnframes() / w.getframerate()
+    return probe(path)["duration"]
+
+
+def pcm_chunks(path: Path, seconds: float, sr: int = 16000):
+    """16 kHz mono samples (int16) of any audio/video file, `seconds` at a time. Works on a
+    200-hour file with flat memory and no giant temporary .wav."""
+    if path.suffix.lower() == ".wav":
+        with wave.open(str(path), "rb") as w:
+            if w.getframerate() == sr and w.getnchannels() == 1:
+                while raw := w.readframes(int(seconds * sr)):
+                    yield np.frombuffer(raw, dtype=np.int16)
+                return
+    proc = subprocess.Popen([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", str(path), "-vn",
+                             "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"], stdout=subprocess.PIPE)
+    need = int(seconds * sr) * 2
+    try:
         while True:
-            raw = w.readframes(per_read)
-            if not raw:
+            buf = proc.stdout.read(need)
+            if not buf:
                 break
-            a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            n = len(a) // step
-            if n:
-                out.append(np.mean(a[: n * step].reshape(n, step) ** 2, axis=1))
+            yield np.frombuffer(buf[: len(buf) // 2 * 2], dtype=np.int16)
+    finally:
+        proc.stdout.close()
+        proc.kill()
+        proc.wait()
+
+
+def audio_for_analysis(source: Path, out_wav: Path) -> Path:
+    """A 16 kHz .wav for normal videos (fast repeated reads); the source itself for very long ones
+    (a 200-hour .wav would be ~23 GB)."""
+    if out_wav.exists():
+        return out_wav
+    if media_seconds(source) > LONG_AUDIO_HOURS * 3600:
+        return source
+    return extract_audio(source, out_wav)
+
+
+def frame_power(path: Path, hop: float = 0.1) -> tuple[np.ndarray, float]:
+    """Mean square level of every `hop`-second frame, read in pieces so even a 200-hour
+    video's audio never has to fit in memory at once."""
+    sr = 16000
+    step = int(sr * hop)
+    out = []
+    for chunk in pcm_chunks(path, 60.0, sr):
+        a = chunk.astype(np.float32) / 32768.0
+        n = len(a) // step
+        if n:
+            out.append(np.mean(a[: n * step].reshape(n, step) ** 2, axis=1))
     return (np.concatenate(out) if out else np.zeros(0, dtype=np.float32)), hop
 
 

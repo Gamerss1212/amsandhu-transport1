@@ -56,6 +56,12 @@ def configure(cfg) -> None:
     elif _cookie_file.exists():
         _cookies["cookiefile"] = str(_cookie_file)
     _configured_login = bool(_cookies)
+    from .media import ensure_ffmpeg_on_path
+
+    try:
+        ensure_ffmpeg_on_path(cfg.path("paths.db").parent / "bin")
+    except OSError:
+        pass  # only partial downloads of very long videos need it
 
 
 def login_status() -> dict:

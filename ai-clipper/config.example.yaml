@@ -54,8 +54,8 @@ discovery:
   use_trending_chart: true       # YouTube "most popular" chart (very cheap on quota)
   region_code: US
   language: en
-  min_duration_minutes: 20
-  max_duration_minutes: 1800     # up to 30-hour videos (streams, marathons)
+  min_duration_minutes: 10       # shortest video to clip from
+  max_duration_minutes: 12000    # longest: 200 hours (streams, marathons) - over 3 h only the audio is downloaded
   published_within_days: 14
   min_views: 100000
   max_videos_per_run: 8          # most long videos to watch per click while collecting your clips

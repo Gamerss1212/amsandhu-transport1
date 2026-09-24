@@ -8,11 +8,14 @@ import shutil
 from pathlib import Path
 
 from .. import ytdl
-from ..media import ffmpeg_exe, probe
+from ..media import ffmpeg_exe, probe, run_ffmpeg
 
 KEEP_INFO = ("id", "title", "description", "channel", "channel_id", "duration", "view_count",
              "like_count", "comment_count", "heatmap", "chapters", "tags", "upload_date", "width",
-             "height", "fps", "webpage_url")
+             "height", "fps", "webpage_url", "audio_only")
+MEDIA_EXT = (".mp4", ".mkv", ".webm", ".mov", ".m4a", ".opus", ".mp3", ".ogg")
+AUDIO_ONLY_HOURS = 3.0  # longer videos: analyse the audio only, then download just the chosen clips
+AUDIO_FORMAT = "ba[protocol^=http]/ba/b"
 # plain HTTPS formats first: HLS (m3u8) streams are slow and can stall
 FORMAT = ("bv*[height<=1080][ext=mp4][protocol^=http]+ba[ext=m4a][protocol^=http]/"
           "bv*[height<=1080][protocol^=http]+ba[protocol^=http]/"
@@ -43,12 +46,13 @@ def _local(path: Path, out_dir: Path) -> tuple[Path, dict]:
     return video_path, info
 
 
-def download(source: str, work_dir: Path, on_progress=None, log=None) -> tuple[Path, dict]:
+def download(source: str, work_dir: Path, on_progress=None, log=None,
+             max_hours: float = 200.0) -> tuple[Path, dict]:
     """source: a YouTube video id, any video URL yt-dlp supports, or a local video file."""
     out_dir = work_dir / source_key(source)
     out_dir.mkdir(parents=True, exist_ok=True)
     info_path = out_dir / "info.json"
-    cached = sorted(p for p in out_dir.glob("source.*") if p.suffix in (".mp4", ".mkv", ".webm", ".mov"))
+    cached = sorted(p for p in out_dir.glob("source.*") if p.suffix in MEDIA_EXT)
     if cached and info_path.exists():
         return cached[0], json.loads(info_path.read_text(encoding="utf-8"))
     if Path(source).is_file():
@@ -66,19 +70,31 @@ def download(source: str, work_dir: Path, on_progress=None, log=None) -> tuple[P
         with ytdl.ydl(skip_download=True, socket_timeout=30) as y:
             raw = y.extract_info(url, download=False, process=False)
         hours = float(raw.get("duration") or 0) / 3600
-        fmt = FORMAT
-        if hours > 2:  # a 10-30 hour video at 1080p is tens of GB: 720p is plenty for 9:16 crops
+        if hours > max_hours:
+            raise RuntimeError(f"This video is {hours:.0f} hours long - the limit is {max_hours:.0f} hours")
+        fmt, extra = FORMAT, {"merge_output_format": "mp4"}
+        if hours > AUDIO_ONLY_HOURS:
+            # a 200-hour video is hundreds of GB: listen to the audio only (about 50 MB an hour),
+            # then fetch just the chosen clips in full quality when editing
+            fmt, extra = AUDIO_FORMAT, {}
+            if log:
+                log(f"Very long video ({hours:.1f} h) - downloading the audio only to find the best moments; "
+                    "the chosen clips are downloaded in full quality afterwards")
+        elif hours > 1.5:  # 720p is plenty for 9:16 crops and halves the download
             fmt = FORMAT.replace("1080", "720")
             if log:
                 log(f"Long video ({hours:.1f} h) - downloading at 720p to save time and disk space")
-        with ytdl.ydl(format=fmt, merge_output_format="mp4", outtmpl=str(out_dir / "source.%(ext)s"),
-                      ffmpeg_location=ffmpeg_exe(), progress_hooks=[hook], socket_timeout=30, retries=10,
-                      fragment_retries=10, continuedl=True) as y:
-            return y.sanitize_info(y.process_ie_result(raw, download=True))
+        with ytdl.ydl(format=fmt, outtmpl=str(out_dir / "source.%(ext)s"), ffmpeg_location=ffmpeg_exe(),
+                      progress_hooks=[hook], socket_timeout=30, retries=10, fragment_retries=10,
+                      continuedl=True, **extra) as y:
+            got = y.sanitize_info(y.process_ie_result(raw, download=True))
+        got["audio_only"] = hours > AUDIO_ONLY_HOURS
+        got.setdefault("webpage_url", url)
+        return got
 
     info = ytdl.with_login_fallback(fetch, log)
     if not video_path.exists():  # merged into another container
-        found = sorted(p for p in out_dir.glob("source.*") if p.suffix in (".mkv", ".webm", ".mp4"))
+        found = sorted(p for p in out_dir.glob("source.*") if p.suffix in MEDIA_EXT)
         if not found:
             raise RuntimeError(f"download of {source} produced no video file")
         video_path = found[0]
@@ -94,6 +110,62 @@ def download(source: str, work_dir: Path, on_progress=None, log=None) -> tuple[P
     except Exception:
         pass
     return video_path, slim
+
+
+def _section_via_relay(url: str, start: float, end: float, out: Path) -> Path:
+    """ffmpeg cuts [start, end] straight out of the online file, fetching only the bytes it needs."""
+    from .relay import Relay
+
+    def info() -> dict:
+        with ytdl.ydl(format=FORMAT, skip_download=True, socket_timeout=30) as y:
+            return y.extract_info(url, download=False)
+
+    got = info()
+    fmts = got.get("requested_formats") or [got]
+    if any(f.get("protocol", "https") not in ("http", "https") for f in fmts):
+        raise RuntimeError("streaming-only format")
+    targets = [(f["url"], f.get("http_headers") or got.get("http_headers") or {}) for f in fmts]
+    tmp = out.with_name(out.stem + ".part.mp4")
+    with Relay(targets) as relay:
+        args: list[str] = []
+        for n in range(len(targets)):
+            args += ["-ss", f"{max(0.0, start):.3f}", "-i", relay.url(n)]
+        maps = ["-map", "0:v:0", "-map", "1:a:0"] if len(targets) > 1 else ["-map", "0:v:0", "-map", "0:a:0?"]
+        run_ffmpeg([*args, "-t", f"{end - start:.3f}", *maps, "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(tmp)])
+    tmp.replace(out)
+    return out
+
+
+def download_section(url: str, start: float, end: float, out: Path, log=None) -> Path:
+    """Just [start, end] of an online video in full quality (for clips of very long videos)."""
+    from yt_dlp.utils import download_range_func
+
+    if out.exists():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return ytdl.with_login_fallback(lambda: _section_via_relay(url, start, end, out), log)
+    except ytdl.BotCheck:
+        raise
+    except Exception as exc:
+        if log:
+            log(f"Direct clip download failed ({str(exc)[-120:]}) - trying yt-dlp's own clip download")
+    stem = out.with_suffix("")
+
+    def fetch() -> dict:
+        with ytdl.ydl(format=FORMAT, merge_output_format="mp4", outtmpl=str(stem) + ".%(ext)s",
+                      ffmpeg_location=ffmpeg_exe(), download_ranges=download_range_func(None, [(start, end)]),
+                      force_keyframes_at_cuts=True, socket_timeout=30, retries=10, fragment_retries=10) as y:
+            return y.extract_info(url, download=True)
+
+    ytdl.with_login_fallback(fetch, log)
+    found = sorted(p for p in out.parent.glob(stem.name + ".*") if p.suffix in MEDIA_EXT)
+    if not found:
+        raise RuntimeError(f"could not download {start:.0f}-{end:.0f}s of {url}")
+    if found[0] != out:
+        found[0].replace(out)
+    return out
 
 
 def caption_file(video_path: Path) -> Path | None:

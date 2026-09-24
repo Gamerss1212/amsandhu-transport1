@@ -366,3 +366,90 @@ def test_many_clips_are_made_in_layers(cfg, monkeypatch):
     assert len(out) == 12
     assert [sum(1 for m in made if m["layer"] == L) for L in (1, 2, 3)] == [5, 5, 2]
     assert pipe._run.__func__ and pipeline_mod.MAX_CLIPS == 100
+
+
+def test_audio_streams_from_any_file_without_a_giant_wav(tmp_path, monkeypatch):
+    import numpy as np
+
+    from clipper import media
+
+    src = tmp_path / "talk.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=f=300:d=130",
+                    "-c:a", "aac", str(src)], check=True)
+    chunks = list(media.pcm_chunks(src, 60))
+    assert [round(len(c) / 16000) for c in chunks] == [60, 60, 10]
+    power, _ = media.frame_power(src)
+    assert abs(len(power) - 1300) <= 2 and np.median(power) > 0.005
+    monkeypatch.setattr(media, "LONG_AUDIO_HOURS", 0.01)  # pretend 130 s is "very long"
+    assert media.audio_for_analysis(src, tmp_path / "a.wav") == src and not (tmp_path / "a.wav").exists()
+
+
+def test_very_long_video_clips_download_only_their_section(cfg, tmp_path, monkeypatch):
+    """Over 3 h only the audio is analysed; each chosen clip is fetched on its own in full quality."""
+    src = _video_with(tmp_path, cfg, "a.mp4", TEXT)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
+    fetched = []
+
+    def fake_section(url, start, end, out, log=None):
+        fetched.append((url, start, end))
+        subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-ss", f"{start}", "-i", str(src),
+                        "-t", f"{end - start}", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", str(out)],
+                       check=True)
+        return out
+    monkeypatch.setattr(pipeline_mod, "download_section", fake_section)
+    real_analyze = pipeline_mod.analyze_video
+
+    def audio_only(cand, *a, **k):
+        r = real_analyze(cand, *a, **k)
+        r["meta"].update(audio_only=True, webpage_url="https://www.youtube.com/watch?v=abcdefghijk")
+        return r
+    monkeypatch.setattr(pipeline_mod, "analyze_video", audio_only)
+    clips = Pipeline(cfg).clip_video(str(src), "simple", clips=1)
+    assert len(clips) == 1 and len(fetched) == 1
+    url, start, end = fetched[0]
+    assert url.endswith("abcdefghijk") and end - start < 90  # a few seconds around the clip, not the video
+    assert abs(clips[0]["duration"] - (end - start - 6)) < 8
+
+
+def test_relay_serves_byte_ranges(tmp_path):
+    """ffmpeg seeks through the local relay with Range requests (only a clip's bytes are fetched)."""
+    import threading
+    import urllib.request
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    from functools import partial
+
+    from clipper.analysis.relay import Relay
+
+    class Ranged(SimpleHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            data = (tmp_path / "f.bin").read_bytes()
+            rng = self.headers.get("Range")
+            if rng:
+                a, b = rng.split("=")[1].split("-")
+                a, b = int(a), int(b or len(data) - 1)
+                self.send_response(206)
+                self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+                body = data[a:b + 1]
+            else:
+                self.send_response(200)
+                body = data
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            self.wfile.write(body)
+
+    (tmp_path / "f.bin").write_bytes(bytes(range(256)) * 100)
+    origin = ThreadingHTTPServer(("127.0.0.1", 0), partial(Ranged, directory=str(tmp_path)))
+    threading.Thread(target=origin.serve_forever, daemon=True).start()
+    try:
+        with Relay([(f"http://127.0.0.1:{origin.server_address[1]}/f.bin", {})]) as relay:
+            req = urllib.request.Request(relay.url(0), headers={"Range": "bytes=256-259"})
+            with urllib.request.urlopen(req) as r:
+                assert r.status == 206 and r.read() == bytes([0, 1, 2, 3])
+                assert r.headers["Content-Range"] == "bytes 256-259/25600"
+    finally:
+        origin.shutdown()

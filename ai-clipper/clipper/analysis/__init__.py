@@ -6,7 +6,7 @@ import json
 from ..config import Config
 from ..events import Reporter
 from ..llm import Claude
-from ..media import extract_audio
+from ..media import audio_for_analysis
 from .download import caption_file, download, ytdlp_comments
 from .moments import Clip, clip_words, select_moments
 from .signals import compute_signals
@@ -22,7 +22,11 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
     video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
                            lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
-                           log=lambda m: rep.info("analysis", m))
+                           log=lambda m: rep.info("analysis", m),
+                           max_hours=cfg["discovery"].get("max_duration_minutes", 12000) / 60)
+    if float(info.get("duration") or 0) < cfg["discovery"].get("min_duration_minutes", 10) * 60:
+        rep.info("analysis", f"Note: this video is under {cfg['discovery'].get('min_duration_minutes', 10)} minutes "
+                             "- short videos rarely hold a strong standalone moment")
     meta = {**info, "title": info.get("title") or cand.get("title", ""),
             "channel": info.get("channel") or cand.get("channel", ""),
             "duration": float(info.get("duration") or cand.get("duration") or 0)}
@@ -47,7 +51,7 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         except Exception as exc:
             rep.info("analysis", f"Comments unavailable: {exc}")
 
-    wav = extract_audio(video, video.parent / "audio16k.wav")
+    wav = audio_for_analysis(video, video.parent / "audio16k.wav")
     signals = compute_signals(info, transcript, wav, comments, meta["duration"])
     found = [k for k, v in signals["raw"].items() if v is not None and k != "pace"]
     rep.info("analysis", f"Audience/audio signals available: {', '.join(found) or 'none'}")

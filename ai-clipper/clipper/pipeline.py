@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 from .analysis import analyze_video, clip_words
-from .analysis.download import source_key
+from .analysis.download import download_section, source_key
 from .analysis.signals import peaks
 from .brain import Brain
 from .config import Config
@@ -229,11 +229,20 @@ class Pipeline:
             if energy is not None:
                 s, e = int(clip.start), int(clip.end)
                 highlights = [p + s for p in peaks(energy[s:e], n=3, min_gap=8)]
-            job = RenderJob(source=result["video"], start=clip.start, end=clip.end,
-                            words=clip_words(result["transcript"]["words"], clip.start, clip.end),
-                            hook=clip.hook, emphasis=clip.emphasis_words, out_dir=out_dir, name=name,
-                            highlights=highlights)
+            words = clip_words(result["transcript"]["words"], clip.start, clip.end)
+            source, offset = result["video"], 0.0
             try:
+                if meta.get("audio_only"):  # very long video: only the audio was downloaded
+                    offset = max(0.0, clip.start - 3.0)
+                    self.rep.progress("editing", (i - 1) / len(clips),
+                                      f"Downloading just this clip in full quality ({clip.duration:.0f}s)...")
+                    source = download_section(meta.get("webpage_url") or str(meta.get("id")), offset,
+                                              clip.end + 3.0, result["video"].parent / f"section_{int(clip.start)}.mp4",
+                                              log=lambda m: self.rep.info("editing", m))
+                job = RenderJob(source=source, start=clip.start - offset, end=clip.end - offset,
+                                words=[{**w, "s": w["s"] - offset, "e": w["e"] - offset} for w in words],
+                                hook=clip.hook, emphasis=clip.emphasis_words, out_dir=out_dir, name=name,
+                                highlights=[h - offset for h in highlights])
                 info = render(job, preset, self.cfg)
             except Exception as exc:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")

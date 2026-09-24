@@ -12,10 +12,9 @@ import json
 import os
 import re
 import time
-import wave
 from pathlib import Path
 
-from ..media import extract_audio
+from ..media import audio_for_analysis, media_seconds, pcm_chunks
 
 _SENTENCE_END = re.compile(r"[.!?…]['\"]?$")
 
@@ -49,13 +48,12 @@ class WrongLanguage(RuntimeError):
 
 
 def _wav_seconds(wav: Path) -> float:
-    with wave.open(str(wav), "rb") as w:
-        return w.getnframes() / w.getframerate()
+    return media_seconds(wav)
 
 
 def _whisper(wav: Path, model_size: str, device: str, language: str | None = None, fast: bool = False,
              progress=None) -> dict:
-    """Transcribe in 20-minute pieces (a 30-hour video never has to fit in memory).
+    """Transcribe in 20-minute pieces (a 200-hour video never has to fit in memory).
     fast=True batches the audio through the model at once - several times faster on long videos."""
     import ctranslate2
     import numpy as np
@@ -66,35 +64,31 @@ def _whisper(wav: Path, model_size: str, device: str, language: str | None = Non
     model = WhisperModel(model_size, device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8",
                          cpu_threads=min(16, os.cpu_count() or 4))
     runner = BatchedInferencePipeline(model) if fast else model
+    total = max(1.0, media_seconds(wav))
+    piece = 20 * 60
     words: list[dict] = []
     detected = None
-    with wave.open(str(wav), "rb") as w:
-        sr, total = w.getframerate(), w.getnframes()
-        piece = 20 * 60 * sr
-        for off in range(0, max(total, 1), piece):
-            raw = w.readframes(piece)
-            if not raw:
-                break
-            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            opts = {"word_timestamps": True, "vad_filter": True, "beam_size": 1 if fast else 5}
-            if fast:
-                opts["batch_size"] = 16
-            if detected:
-                opts["language"] = detected
-            segments, info = runner.transcribe(audio, **opts)
-            if detected is None:
-                # segments is lazy: the language is known before any real transcription work is done
-                if language and info.language != language and info.language_probability >= 0.5:
-                    raise WrongLanguage(f"video is in '{info.language}', expected '{language}'")
-                detected = info.language
-            base = off / sr
-            for seg in segments:
-                for wd in seg.words or []:
-                    text = wd.word.strip()
-                    if text:
-                        words.append({"w": text, "s": round(float(base + wd.start), 3), "e": round(float(base + wd.end), 3)})
-            if progress:
-                progress(min(1.0, (off + piece) / max(total, 1)))
+    for n, chunk in enumerate(pcm_chunks(wav, piece)):
+        audio = chunk.astype(np.float32) / 32768.0
+        opts = {"word_timestamps": True, "vad_filter": True, "beam_size": 1 if fast else 5}
+        if fast:
+            opts["batch_size"] = 16
+        if detected:
+            opts["language"] = detected
+        segments, info = runner.transcribe(audio, **opts)
+        if detected is None:
+            # segments is lazy: the language is known before any real transcription work is done
+            if language and info.language != language and info.language_probability >= 0.5:
+                raise WrongLanguage(f"video is in '{info.language}', expected '{language}'")
+            detected = info.language
+        base = n * piece
+        for seg in segments:
+            for wd in seg.words or []:
+                text = wd.word.strip()
+                if text:
+                    words.append({"w": text, "s": round(float(base + wd.start), 3), "e": round(float(base + wd.end), 3)})
+        if progress:
+            progress(min(1.0, (n + 1) * piece / total))
     words.sort(key=lambda x: x["s"])
     return {"source": "whisper", "language": detected, "words": words, "segments": group_segments(words)}
 
@@ -128,7 +122,7 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
         return json.loads(cache.read_text(encoding="utf-8"))
     result = None
     try:
-        wav = extract_audio(video, video.parent / "audio16k.wav")
+        wav = audio_for_analysis(video, video.parent / "audio16k.wav")
         seconds = _wav_seconds(wav)
         fast = seconds > long_hours * 3600
         if fast and captions:
