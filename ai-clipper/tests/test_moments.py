@@ -223,3 +223,22 @@ def test_zero_length_word_at_clip_start_is_not_in_the_clip():
           {"w": "How", "s": 1936.9, "e": 1936.92}, {"w": "do", "s": 1936.92, "e": 1936.96}]
     assert [w["w"] for w in clip_words(ws, 1936.88, 1990.0)] == ["How", "do"]
     assert [w["w"] for w in clip_words(ws, 1936.7, 1936.93)] == ["it", "all.", "How"]
+
+
+def test_clip_keeps_the_laugh_after_the_punchline():
+    import numpy as np
+
+    from clipper.analysis.moments import Clip, let_reaction_land
+
+    curve = np.zeros(60)
+    curve[30:33] = 5.0  # the audience laughs from 30 s to 33 s
+    words = [{"w": "punchline.", "s": 29.0, "e": 29.8}, {"w": "Next", "s": 34.0, "e": 34.3}]
+    c = Clip(start=10.0, end=30.1, title="t", hook="h")
+    let_reaction_land(c, {"raw": {"reaction": curve}}, words, max_s=60)
+    assert 32.5 <= c.end <= 33.1
+    quiet = Clip(start=10.0, end=20.1, title="t", hook="h")
+    let_reaction_land(quiet, {"raw": {"reaction": curve}}, words, max_s=60)
+    assert quiet.end == 20.1  # no reaction there: unchanged
+    early = Clip(start=10.0, end=30.1, title="t", hook="h")
+    let_reaction_land(early, {"raw": {"reaction": curve}}, [{"w": "More", "s": 31.0, "e": 31.4}], max_s=60)
+    assert early.end <= 30.95  # never runs into the next words

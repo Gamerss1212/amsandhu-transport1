@@ -222,6 +222,25 @@ def snap(start: float, end: float, segments: list[dict], words: list[dict],
     return round(s, 2), round(e, 2)
 
 
+def let_reaction_land(clip: Clip, signals: dict, words: list[dict], max_s: float, most: float = 3.0) -> None:
+    """A punchline's laugh / applause is part of the moment: when the audience reacts right after the
+    last line, keep the clip running through the reaction (up to `most` s, never into the next words)."""
+    curve = (signals.get("raw") or {}).get("reaction")
+    if curve is None or len(curve) == 0:
+        return
+    e = clip.end
+    k0 = int(e)
+    if k0 >= len(curve) or not any(curve[k] > 0 for k in range(k0, min(len(curve), k0 + 2))):
+        return
+    k = k0
+    while k + 1 < len(curve) and curve[k + 1] > 0 and k + 1 - e < most:
+        k += 1
+    next_word = min((w["s"] for w in words if w["s"] >= e - 1e-3), default=e + most + 1)
+    new_end = min(k + 1.0, e + most, next_word - 0.05, clip.start + max_s + most)
+    if new_end > e + 0.2:
+        clip.end = round(new_end, 2)
+
+
 def overlap_ratio(a: Clip, b: Clip) -> float:
     inter = max(0.0, min(a.end, b.end) - max(a.start, b.start))
     return inter / max(1e-6, min(a.duration, b.duration))
@@ -439,6 +458,7 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
             approved.append(c)
     approved = dedupe(approved, key="final_score")[: a["max_clips_per_video"]]
     for c in approved:
+        let_reaction_land(c, signals, transcript["words"], a["max_clip_seconds"])
         c.emphasis_words = c.emphasis_words or []
         if not c.hashtags and profile:
             c.hashtags = [r["feature"].lstrip("#") for r in profile.get("hashtag_lift", [])[:6]]
