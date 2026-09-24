@@ -292,3 +292,20 @@ def test_shots_with_nobody_show_the_full_frame():
     track = plan_track(times, [face] * 15 + [[]] * 15 + [face] * 15, cuts=[4.9, 10.1], mode="face_smooth")
     assert track.layout == "crop" and track.fit_windows == [(4.9, 10.1)]
     assert plan_track(times, [[]] * 45, cuts=[], mode="face").layout == "fit"  # screen recording: never blind-crop
+
+
+def test_clip_running_past_the_end_of_the_file_is_clamped(cfg, tmp_path):
+    import subprocess
+
+    from clipper.editing import RenderJob, get_preset, render
+    from clipper.media import ffmpeg_exe
+
+    src = tmp_path / "short.mp4"  # 8 s of media, but the transcript claims words up to 14 s
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8",
+                    "-f", "lavfi", "-i", "sine=f=200:d=8", "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+                    str(src)], check=True)
+    words = [{"w": f"word{i}.", "s": 0.5 + i, "e": 1.2 + i} for i in range(14)]
+    job = RenderJob(source=src, start=0, end=14.5, words=words, hook="", emphasis=[], out_dir=tmp_path, name="e")
+    info = render(job, get_preset("simple"), cfg)
+    assert info["review"]["ok"] and 7.5 <= info["duration"] <= 8.1
+    assert "word13" not in (tmp_path / "e.srt").read_text()

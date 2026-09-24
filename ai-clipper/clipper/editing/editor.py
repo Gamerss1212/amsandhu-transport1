@@ -141,6 +141,10 @@ def stack_filters(src: str, out: str, track: Track, in_w: int, in_h: int, W: int
 
 
 def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, float]:
+    media_end = probe(job.source)["duration"]
+    if media_end and job.end > media_end - 0.05:  # a transcript can run past the end of the file
+        job = dataclasses.replace(job, end=max(job.start + 1.0, media_end - 0.05),
+                                  words=[w for w in job.words if w["e"] <= media_end])
     ranges = keep_ranges(job.words, job.start, job.end, preset.max_pause, preset.remove_fillers)
     if output_duration(ranges) < min(job.end - job.start, max(5.0, 0.4 * (job.end - job.start))):
         ranges = [(job.start, job.end)]  # mostly silence / music: jump cuts would leave almost nothing

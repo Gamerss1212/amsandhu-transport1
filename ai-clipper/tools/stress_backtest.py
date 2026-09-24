@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import random
 import re
@@ -78,7 +79,8 @@ def make_edge_video(case: dict, work: Path, rng: random.Random) -> tuple[Path, l
     words = synth_words(case.get("text", TEXT * 2), case.get("gaps", False), rng)
     dur = words[-1]["e"] + 1.5
     size, fps = case.get("size", "1280x720"), case.get("fps", 30)
-    path = work / f"edge_{case['name']}.mp4"
+    stamp = hashlib.sha1(json.dumps(words).encode()).hexdigest()[:8]  # the video must match these words
+    path = work / f"edge_{case['name']}_{size}_{fps}_{stamp}.mp4"
     if not path.exists():
         vol = case.get("volume", 0.3)
         audio = "anullsrc=r=48000:cl=stereo" if case.get("silent") else \
