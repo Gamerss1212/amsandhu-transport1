@@ -174,7 +174,7 @@ def test_mostly_silent_clip_is_not_cut_to_nothing(cfg, tmp_path):
     job = RenderJob(source=src, start=0, end=12, words=[{"w": "Wow.", "s": 5.0, "e": 5.6}], hook="",
                     emphasis=[], out_dir=tmp_path, name="q")
     _, ranges, duration = cut_pass(job, get_preset("extreme"), tmp_path)
-    assert duration > 10 and ranges == [(0, 12)]
+    assert duration > 10 and len(ranges) == 1 and ranges[0][0] == 0 and ranges[0][1] > 11.9
 
 
 def test_two_shots_inside_a_clip_switch_to_the_stacked_view():

@@ -99,6 +99,34 @@ def vignette_image(folder: Path, W: int, H: int) -> Path | None:
     return path
 
 
+def best_thumbnail_time(video: Path, duration: float) -> float:
+    """The cover frame: of a few candidates while the hook card is on screen, the one with the biggest,
+    clearest face (a readable face + the hook title is what makes people tap)."""
+    candidates = [t for t in (0.6, 1.0, 1.5, 2.0, 2.5) if t < duration - 0.2] or [duration / 2]
+    try:
+        import cv2
+        from .reframe import _make_detector
+
+        cap = cv2.VideoCapture(str(video))
+        detect, best, best_t = None, -1.0, candidates[0]
+        for t in candidates:
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            small = cv2.resize(frame, (270, 480))
+            detect = detect or _make_detector(270, 480)
+            faces = detect(small)
+            sharp = cv2.Laplacian(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
+            score = max((f[2] for f in faces), default=0) * 10 + min(sharp, 500) / 50
+            if score > best:
+                best, best_t = score, t
+        cap.release()
+        return best_t
+    except Exception:
+        return candidates[min(1, len(candidates) - 1)]
+
+
 def face_safe_caption_y(faces, in_w: int, in_h: int, H: int, zoom: float = 1.18) -> int:
     """Captions sit below the speaker's chin, never across the face: from the tracked faces, find how
     low the face reaches (allowing for punch-in zooms) and move the captions under it, staying inside
@@ -542,7 +570,7 @@ def render(job: RenderJob, preset: Preset, cfg, log=None) -> dict:
         k.unlink(missing_ok=True)
     if best is None:
         raise last_exc or RuntimeError("render failed")
-    thumb = extract_frame(out, min(1.2, best["duration"] / 2), job.out_dir / f"{job.name}.jpg", width=W)
+    thumb = extract_frame(out, best_thumbnail_time(out, best["duration"]), job.out_dir / f"{job.name}.jpg", width=W)
     best["thumbnail"] = thumb.name
     best["review"]["ok"] = not best["review"]["problems"]
     return best

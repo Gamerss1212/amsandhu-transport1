@@ -38,6 +38,8 @@ class Measure:
     true_peak: float | None = None
     black: list[tuple[float, float]] = field(default_factory=list)
     frozen: list[tuple[float, float]] = field(default_factory=list)
+    silent: list[tuple[float, float]] = field(default_factory=list)
+    av_gap: float = 0.0  # |audio length - video length|: out-of-sync or truncated streams
 
 
 def _run(args: list[str]) -> str:
@@ -51,7 +53,7 @@ def measure(video: Path) -> Measure:
     # copy of the picture
     args = ["-i", str(video)]
     if m.has_audio:
-        args += ["-map", "0:a:0", "-af", "ebur128=peak=true", "-f", "null", "-"]
+        args += ["-map", "0:a:0", "-af", "ebur128=peak=true,silencedetect=n=-50dB:d=2.5", "-f", "null", "-"]
     args += ["-map", "0:v:0", "-vf", "scale=180:-2,blackdetect=d=0.25:pix_th=0.08,freezedetect=n=-60dB:d=2.5",
              "-f", "null", "-"]
     err = _run(args)
@@ -60,6 +62,16 @@ def measure(video: Path) -> Measure:
         tp = re.findall(r"Peak:\s+(-?[\d.]+|-inf) dBFS", err)
         m.lufs = float(i[-1]) if i else None
         m.true_peak = float(tp[-1]) if tp and tp[-1] != "-inf" else None
+    ss = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", err)]
+    se = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", err)]
+    m.silent = [(a, se[k] if k < len(se) else m.duration) for k, a in enumerate(ss)]
+    if m.has_audio:
+        streams = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(video), "-map", "0:a:0", "-c", "copy",
+                                  "-f", "null", "-"], capture_output=True, text=True).stderr
+        t = re.findall(r"time=(\d+):(\d+):([\d.]+)", streams)
+        if t:
+            h, mi, sec = t[-1]
+            m.av_gap = abs(int(h) * 3600 + int(mi) * 60 + float(sec) - m.duration)
     m.black = [(float(a), float(b)) for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", err)]
     starts = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", err)]
     ends = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", err)]
@@ -89,6 +101,12 @@ def findings(m: Measure, expected: float, W: int, H: int, fps: int, srt: Path | 
             out.append(Finding("black_end", f"black {a:.2f}-{b:.2f}s", "fix"))
         elif b - a >= 0.5:
             out.append(Finding("black_mid", f"black {a:.2f}-{b:.2f}s (source fade?)", "note"))
+    if m.av_gap > 0.3:
+        out.append(Finding("av_sync", f"audio and picture lengths differ by {m.av_gap:.2f}s", "retry"))
+    if m.lufs is not None and m.lufs > -40:  # a clip with speech that suddenly goes silent = audio dropout
+        for a, b in m.silent:
+            if b - a >= 2.5 and a > 0.3 and b < m.duration - 0.3:
+                out.append(Finding("dropout", f"audio silent {a:.1f}-{b:.1f}s", "note"))
     for a, b in m.frozen:
         out.append(Finding("frozen", f"picture frozen {a:.1f}-{b:.1f}s", "retry"))
     if srt and srt.exists():
