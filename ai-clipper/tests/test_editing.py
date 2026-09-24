@@ -144,3 +144,12 @@ def test_srt_lines_never_overlap():
     times = _re.findall(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> (\d\d):(\d\d):(\d\d),(\d\d\d)", build_srt(words, 3))
     secs = [(int(a[2]) + int(a[3]) / 1000, int(a[6]) + int(a[7]) / 1000) for a in times]
     assert all(b1 <= a2 for (_, b1), (a2, _) in zip(secs, secs[1:]))
+
+
+def test_long_hooks_are_shortened_and_smaller():
+    from clipper.editing.captions import hook_fit
+
+    assert hook_fit("Nobody expected this", 74) == "NOBODY EXPECTED THIS"
+    long = hook_fit("This is the longest hook anyone has ever written for a short video clip and it keeps going", 74)
+    assert long.startswith("{\\fs55}") and long.endswith("SHORT...") and len(long.split()) == 12
+    assert hook_fit("one two three four five six seven eight nine ten eleven the twelve", 74).endswith("ELEVEN...")

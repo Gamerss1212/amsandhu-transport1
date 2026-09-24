@@ -68,6 +68,20 @@ def hook_time(hook: str) -> float:
     return min(4.0, max(2.2, 0.8 + 0.28 * len(hook.split())))
 
 
+def hook_fit(hook: str, size: int, max_words: int = 12) -> str:
+    """Keep the hook card to about 3 lines: long hooks are shortened and set smaller."""
+    words = clean(hook).upper().split()
+    if len(words) > max_words:
+        words = words[:max_words]
+        while len(words) > 5 and _norm(words[-1]) in {"a", "an", "the", "for", "of", "to", "in", "on", "and", "but",
+                                                       "or", "with", "my", "your", "his", "her", "is", "was"}:
+            words.pop()
+        words[-1] = words[-1].rstrip(",.;:!?") + "..."
+    n = len(words)
+    scale = 1.0 if n <= 6 else 0.86 if n <= 9 else 0.74
+    return (f"{{\\fs{round(size * scale)}}}" if scale < 1 else "") + " ".join(words)
+
+
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
               hook: str | None = None, caption_y: int = 1380, hook_seconds: float | None = None,
@@ -142,5 +156,5 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if hook:
         # hook card drops in with an overshoot, holds, then fades
         anim = "{\\fad(80,250)\\fscx60\\fscy60\\frz-4\\t(0,160,\\fscx108\\fscy108\\frz2)\\t(160,260,\\fscx100\\fscy100\\frz0)}"
-        add(0.0, min(hook_seconds or hook_time(hook), duration), anim + clean(hook).upper(), "Hook", layer=1)
+        add(0.0, min(hook_seconds or hook_time(hook), duration), anim + hook_fit(hook, hook_size), "Hook", layer=1)
     return header + "\n".join(events) + "\n"
