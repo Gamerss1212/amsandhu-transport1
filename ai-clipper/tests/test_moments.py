@@ -260,3 +260,12 @@ def test_categories_captions_and_topic_hashtags():
     caps = {lj.caption_and_tags(h, "funny", {}, None)[0].splitlines()[-1] for h in ("a", "bb", "ccc", "dddd")}
     assert len(caps) >= 2  # captions vary from clip to clip
     assert lj.comedy_prior({"title": "Best stand-up of 2026"}) == 0.5 and lj.comedy_prior({"title": "News"}) == 0
+
+
+def test_long_videos_can_supply_many_clips():
+    from clipper.analysis.moments import per_video_cap
+
+    cfg = {"analysis": {"max_clips_per_video": 6}}
+    assert per_video_cap(cfg, {"words": [{"e": 1800}]}) == 6
+    assert per_video_cap(cfg, {"words": [{"e": 10 * 3600}]}) == 60
+    assert per_video_cap(cfg, {"words": [{"e": 200 * 3600}]}) == 100

@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import math
+
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -222,6 +224,18 @@ def snap(start: float, end: float, segments: list[dict], words: list[dict],
     return round(s, 2), round(e, 2)
 
 
+def _spoken_seconds(transcript: dict) -> float:
+    words = transcript.get("words") or []
+    return words[-1]["e"] if words else 0.0
+
+
+def per_video_cap(cfg: dict, transcript: dict) -> int:
+    """Most clips one video may give: the configured number, or about one per 10 minutes for long videos
+    (a 200-hour stream can supply 100 clips on its own)."""
+    base = cfg["analysis"]["max_clips_per_video"]
+    return int(max(base, min(100, _spoken_seconds(transcript) / 600)))
+
+
 def let_reaction_land(clip: Clip, signals: dict, words: list[dict], max_s: float, most: float = 3.0) -> None:
     """A punchline's laugh / applause is part of the moment: when the audience reacts right after the
     last line, keep the clip running through the reaction (up to `most` s, never into the next words)."""
@@ -374,7 +388,7 @@ def local_candidates(transcript: dict, signals: dict, profile: dict | None, cfg:
     """No-key mode: the built-in judge scans every sentence, plus audience/loudness peaks."""
     a = cfg["analysis"]
     wins = local_judge.find_windows(transcript["segments"], signals, profile, a["min_clip_seconds"],
-                                    a["max_clip_seconds"], top_n=max(12, a["max_clips_per_video"] * 5))
+                                    a["max_clip_seconds"], top_n=max(12, per_video_cap(cfg, transcript) * 5))
     clips = [Clip(w["start"], w["end"], "", "") for w in wins]
     return clips + signal_only_candidates(transcript, signals, cfg)
 
@@ -431,7 +445,8 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
         clips = dedupe([c for c in clips if not c.fatal_flaws]) + dedupe([c for c in clips if c.fatal_flaws])
     log(f"{len(clips)} unique candidates after snapping and de-duplication")
 
-    shortlist = clips[: max(4, a["max_clips_per_video"] * 2)]
+    cap = per_video_cap(cfg, transcript)
+    shortlist = clips[: max(4, cap * 2)]
     if llm and shortlist:
         progress(0.9, f"Strict judge reviewing {len(shortlist)} candidates...")
         frames_dir = video.parent / "judge_frames"
@@ -445,6 +460,9 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
 
     approved = []
     best_local = max((c.ai_score for c in shortlist if not c.fatal_flaws), default=0.0)
+    # a long video has many standout moments, not one: widen the band with its length
+    hours = max(1.0, _spoken_seconds(transcript) / 3600)
+    band = a["local_band"] * (1 + 0.5 * math.log2(hours))
     for c in shortlist:
         if llm:
             ok = (c.judge_score is None or c.judge_score >= a["judge_threshold"]) and \
@@ -452,12 +470,12 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
         else:
             # strict twice over: good in absolute terms AND one of this video's standout moments
             ok = not c.fatal_flaws and c.ai_score >= a["local_content_threshold"] and \
-                c.ai_score >= best_local - a["local_band"] and c.fused_score >= a["local_fused_threshold"]
+                c.ai_score >= best_local - band and c.fused_score >= a["local_fused_threshold"]
         if ok:
             c.final_score = round(0.6 * c.judge_score + 0.4 * c.fused_score, 1) if c.judge_score is not None \
                 else c.fused_score
             approved.append(c)
-    approved = dedupe(approved, key="final_score")[: a["max_clips_per_video"]]
+    approved = dedupe(approved, key="final_score")[:cap]
     for c in approved:
         let_reaction_land(c, signals, transcript["words"], a["max_clip_seconds"])
         c.emphasis_words = c.emphasis_words or []
