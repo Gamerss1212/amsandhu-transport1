@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .analysis import analyze_video, clip_words
@@ -210,21 +212,25 @@ class Pipeline:
         energy = result["signals"]["raw"].get("energy")
         comedy = float(result["signals"].get("comedy") or 0.0)
         taken = {int(m.group(1)) for f in out_dir.glob("clip_*.json") if (m := re.match(r"clip_(\d+)", f.name))}
-        out = []
-        for i, clip in enumerate(clips, 1):
-            safe = self.cfg["editing"].get("censor_profanity", True)
+        safe = self.cfg["editing"].get("censor_profanity", True)
+        plans = []
+        for clip in clips:  # decide names and edits in order ...
             title, hook = (censor(clip.title), censor(clip.hook)) if safe else (clip.title, clip.hook)
             num = next(n for n in range(1, 1000) if n not in taken)  # never overwrite an earlier clip
             taken.add(num)
-            name = f"clip_{num:02d}_{slug(title, 30)}"
             if level:
                 preset, why = get_preset(level), "level you chose"
             else:
                 chosen, why = choose_level(clip.category, clip.duration, comedy,
                                            (clip.signal_scores.get("energy") or 50) / 100)
                 preset = tune(get_preset(chosen), clip.category)  # calm captions for heartfelt moments
-            self.rep.progress("editing", (i - 1) / len(clips),
-                              f"Editing clip {i}/{len(clips)} ({preset.name} edit: {why}): {title}")
+            plans.append((clip, title, hook, f"clip_{num:02d}_{slug(title, 30)}", preset, why))
+        done = [0]
+        lock = threading.Lock()
+
+        def work(plan) -> dict | None:  # ... then edit, review and fix several clips at the same time
+            clip, title, hook, name, preset, why = plan
+            self.rep.info("editing", f"Editing: {title} ({preset.name} edit: {why})")
             highlights = []
             if energy is not None:
                 s, e = int(clip.start), int(clip.end)
@@ -234,8 +240,7 @@ class Pipeline:
             try:
                 if meta.get("audio_only"):  # very long video: only the audio was downloaded
                     offset = max(0.0, clip.start - 3.0)
-                    self.rep.progress("editing", (i - 1) / len(clips),
-                                      f"Downloading just this clip in full quality ({clip.duration:.0f}s)...")
+                    self.rep.info("editing", f"Downloading just this clip in full quality ({clip.duration:.0f}s)...")
                     source = download_section(meta.get("webpage_url") or str(meta.get("id")), offset,
                                               clip.end + 3.0, result["video"].parent / f"section_{int(clip.start)}.mp4",
                                               log=lambda m: self.rep.info("editing", m))
@@ -243,21 +248,45 @@ class Pipeline:
                                 words=[{**w, "s": w["s"] - offset, "e": w["e"] - offset} for w in words],
                                 hook=clip.hook, emphasis=clip.emphasis_words, out_dir=out_dir, name=name,
                                 highlights=[h - offset for h in highlights])
-                info = render(job, preset, self.cfg)
+                info = render(job, preset, self.cfg, log=lambda m: self.rep.info("editing", f"{title}: {m}"))
             except Exception as exc:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")
-                continue
+                return None
             self.brain.record_made(_vid(result), clip.start, clip.end, clip.category,
                                    meta.get("channel") or "", name)
             info.update(level=preset.name, style_reason=why, run=run_id, layer=layer)
             write_post_files(out_dir, name, clip.to_dict(), info, meta, safe)
             item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook, "category": clip.category,
                     "score": clip.final_score, "judge": clip.judge_score, **info}
-            self.rep.emit(Event("clip", "editing", f"Clip ready: {title} (score {clip.final_score})",
+            rv = info.get("review", {})
+            checked = "self-review passed" if rv.get("ok", True) else "review: " + "; ".join(rv.get("problems", []))
+            if rv.get("fixed"):
+                checked += f" (auto-fixed: {', '.join(rv['fixed'])})"
+            with lock:
+                done[0] += 1
+                self.rep.progress("editing", done[0] / len(plans), f"Edited {done[0]}/{len(plans)}")
+            self.rep.emit(Event("clip", "editing", f"Clip ready: {title} (score {clip.final_score}) - {checked}",
                                 data=item))
-            out.append(item)
+            return item
+
+        workers = render_workers(self.cfg, len(plans))
+        if workers > 1:
+            self.rep.info("editing", f"Editing {len(plans)} clips, {workers} at a time")
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(work, plans))
+        else:
+            results = [work(p) for p in plans]
         self.rep.progress("editing", 1.0, "Editing complete")
-        return out
+        return [r for r in results if r]
+
+
+def render_workers(cfg, n_clips: int) -> int:
+    """How many clips to edit at once: each edit already keeps several cores busy, and parts of the
+    effects chain are single-threaded, so ~1 clip per 4 cores (at most 3) finishes a layer fastest."""
+    n = cfg["editing"].get("parallel_renders", "auto")
+    if n in (None, "auto"):
+        n = min(3, max(1, (os.cpu_count() or 4) // 4))
+    return max(1, min(int(n), n_clips))
 
 
 def list_outputs(output_dir: Path) -> list[dict]:
@@ -277,7 +306,7 @@ def list_outputs(output_dir: Path) -> list[dict]:
                       "score": clip.get("final_score"), "judge": clip.get("judge_score"),
                       "duration": meta.get("duration"), "level": meta.get("level"),
                       "style_reason": meta.get("style_reason", ""), "run": meta.get("run", ""),
-                      "layer": meta.get("layer"),
+                      "layer": meta.get("layer"), "review": meta.get("review"),
                       "caption": meta.get("post_caption", ""), "reasons": clip.get("judge_reasons", ""),
                       "source": meta.get("source", {})})
     return items

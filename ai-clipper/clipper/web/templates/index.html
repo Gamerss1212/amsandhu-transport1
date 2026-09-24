@@ -183,6 +183,10 @@
   .clip:hover .play { opacity: 1; scale: 1; }
   .play::after { content: ""; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 4px; }
   .badge { position: absolute; top: 10px; left: 10px; z-index: 1; background: #fff; color: #000; font-weight: 850; font-size: 12px; padding: 3px 8px; border-radius: 99px; }
+  .qc { position: absolute; top: 44px; left: 10px; z-index: 1; font-size: 11px; font-weight: 800; padding: 2px 7px;
+        border-radius: 99px; background: #000b; color: #fff; border: 1px solid #fff4; }
+  .qc.fixed { border-color: var(--accent); color: #e9d5ff; }
+  .qc.warn { border-color: var(--bad); color: #ffc2cc; }
   .dur { position: absolute; bottom: 10px; right: 10px; z-index: 1; font-size: 12px; font-weight: 700; color: #fff; }
   .lvl { position: absolute; bottom: 10px; left: 10px; z-index: 1; font-size: 11px; font-weight: 700; color: #fff; padding: 2px 8px; border-radius: 99px;
          background: #a855f7cc; text-transform: capitalize; }
@@ -302,7 +306,7 @@
         <div class="orb"></div>
         <div><b>The AI edits every clip itself</b>
           <p id="brainLine">It reads each moment and picks the edit that fits: fast cuts, shake and flashes for hype moments, a clean, polished edit with music for heartfelt ones.</p>
-          <div class="tags"><span>Face tracking</span><span>Podcast 2-speaker stack</span><span>Mood-matched captions</span><span>Karaoke captions</span><span>Eased zooms</span><span>Camera shake</span><span>Voice cleanup</span><span>Pop &amp; bass-hit SFX</span><span>Reaction zooms</span><span>Old-footage cleanup</span><span>Music ducking</span><span>Auto border removal</span><span title="Drop gameplay or b-roll videos into assets\broll">Gameplay split (your b-roll)</span><span>Jump cuts</span><span>Hook title</span><span>Subtitles file</span></div>
+          <div class="tags"><span>Face tracking</span><span>Podcast 2-speaker stack</span><span>Mood-matched captions</span><span>Karaoke captions</span><span>Eased zooms</span><span>Camera shake</span><span>Voice cleanup</span><span>Pop &amp; bass-hit SFX</span><span>Reaction zooms</span><span>Old-footage cleanup</span><span>Music ducking</span><span>Auto border removal</span><span title="Drop gameplay or b-roll videos into assets\broll">Gameplay split (your b-roll)</span><span>Jump cuts</span><span>Hook title</span><span>Subtitles file</span><span>Self-review &amp; auto-fix</span><span>De-esser &amp; limiter</span><span>Stutter removal</span></div>
         </div>
       </div>
 
@@ -454,12 +458,29 @@ function setRunning(on) {
   refreshGo();
 }
 
+function qcBadge(c) {
+  const r = c.review;
+  if (!r) return "";
+  if (r.problems && r.problems.length) return `<span class="qc warn" title="${esc(r.problems.join("; "))}">! check</span>`;
+  if (r.fixed && r.fixed.length) return `<span class="qc fixed" title="Auto-fixed: ${esc(r.fixed.join(", "))}">✓ fixed</span>`;
+  return `<span class="qc" title="Self-review passed">✓ checked</span>`;
+}
+
+function reviewText(r) {
+  if (!r) return "";
+  const parts = [r.problems && r.problems.length ? "Needs a look: " + r.problems.join("; ") : "Self-review passed ✓"];
+  if (r.fixed && r.fixed.length) parts.push("auto-fixed: " + r.fixed.join(", "));
+  if (r.passes > 1) parts.push(`${r.passes} edit passes`);
+  if (r.notes && r.notes.length) parts.push("notes: " + r.notes.join("; "));
+  return parts.join(" · ");
+}
+
 function clipCard(c) {
   const i = clipsCache.indexOf(c);
   return `<article class="clip" data-k="${i}">
       <button class="del" data-del="${i}" title="Remove this clip" aria-label="Remove ${esc(c.title)}">✕</button>
       <button class="thumb" data-i="${i}" style="background-image:url('${media(c, c.thumbnail)}')" aria-label="Play ${esc(c.title)}">
-        ${c.score != null ? `<span class="badge">${Math.round(c.score)}</span>` : ""}<span class="play"></span>
+        ${c.score != null ? `<span class="badge">${Math.round(c.score)}</span>` : ""}${qcBadge(c)}<span class="play"></span>
         ${c.level ? `<span class="lvl" title="${esc(c.style_reason || "")}">${esc(STYLE[c.level] || c.level)}</span>` : ""}<span class="dur">${Math.round(c.duration || 0)}s</span>
       </button>
       <div class="meta">
@@ -532,7 +553,8 @@ function openPlayer(c) {
   $("pv").src = media(c, c.video); $("pv").poster = media(c, c.thumbnail);
   $("pt").textContent = c.title; $("pc").value = c.caption || "";
   $("pf").textContent = [c.score != null ? `Score ${c.score}` : "", `${Math.round(c.duration)}s`, STYLE[c.level] || c.level, c.source.channel || c.source.title].filter(Boolean).join(" · ");
-  $("pw").hidden = !c.style_reason; $("pw").textContent = c.style_reason ? `Edit chosen: ${STYLE[c.level] || c.level} - ${c.style_reason}` : "";
+  const why = [c.style_reason ? `Edit chosen: ${STYLE[c.level] || c.level} - ${c.style_reason}` : "", reviewText(c.review)].filter(Boolean);
+  $("pw").hidden = !why.length; $("pw").innerHTML = why.map(esc).join("<br>");
   $("pr").textContent = c.reasons || ""; $("pdl").href = media(c, c.video);
   $("dlg").showModal(); $("pv").play().catch(() => {});
 }

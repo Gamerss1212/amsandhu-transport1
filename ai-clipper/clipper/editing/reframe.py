@@ -13,6 +13,7 @@ import os
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")  # hide OpenCV's harmless backend warnings in the console
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,7 +41,15 @@ MODEL_URLS = (
 MODEL_PATH = ROOT / "data" / "models" / "face_detection_yunet_2023mar.onnx"
 
 
+_model_lock = threading.Lock()
+
+
 def _yunet_model() -> Path | None:
+    with _model_lock:
+        return _fetch_model()
+
+
+def _fetch_model() -> Path | None:
     if MODEL_PATH.exists():
         return MODEL_PATH
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)

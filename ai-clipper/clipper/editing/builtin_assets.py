@@ -3,6 +3,7 @@ a lo-fi music bed, a whoosh for cuts, and animated "satisfying" b-roll for the s
 Anything you put in assets/music, assets/sfx or assets/broll is used instead."""
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from ..media import run_ffmpeg
@@ -87,8 +88,16 @@ MAKERS = {"music": ("lofi_beat.mp3", make_music), "sfx": ("whoosh.wav", make_who
           "broll": ("satisfying_loop_v2.mp4", make_broll)}
 
 
+_lock = threading.Lock()  # clips are edited in parallel: generate each asset only once
+
+
 def builtin(kind: str, cache_dir: Path) -> Path | None:
     """The built-in asset of this kind, generating it the first time. None if generation fails."""
+    with _lock:
+        return _builtin(kind, cache_dir)
+
+
+def _builtin(kind: str, cache_dir: Path) -> Path | None:
     name, make = MAKERS[kind]
     path = cache_dir / name
     if path.exists() and path.stat().st_size > 1000:

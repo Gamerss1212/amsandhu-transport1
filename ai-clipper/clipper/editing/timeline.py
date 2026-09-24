@@ -14,21 +14,40 @@ def is_filler(word: str) -> bool:
     return _bare(word) in FILLERS
 
 
+# short words people stumble on ("I I think", "the the"); a repeat of these is a stutter, not emphasis
+STUTTER = {"i", "i'm", "the", "a", "an", "and", "but", "so", "to", "it", "it's", "that", "we", "you", "he", "she",
+           "they", "is", "was", "in", "of", "my", "if", "like", "just", "this", "what", "when", "then", "for"}
+
+
+def stutters(words: list[dict]) -> set[int]:
+    """Indexes of stuttered repeats: the first of two identical short words in a row, said close together
+    with no punctuation between (keeps "no, no, no" and "very very")."""
+    out = set()
+    for k in range(len(words) - 1):
+        a, b = words[k], words[k + 1]
+        if _bare(a["w"]) == _bare(b["w"]) and _bare(a["w"]) in STUTTER and b["s"] - a["e"] < 0.6 \
+                and not re.search(r"[,.!?;:]$", a["w"]):
+            out.add(k)
+    return out
+
+
 def keep_ranges(words: list[dict], start: float, end: float, max_pause: float | None,
                 remove_fillers: bool) -> list[tuple[float, float]]:
     """Ranges (source seconds) to keep, cutting long pauses and filler words."""
     inside = [w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
     if not inside or (max_pause is None and not remove_fillers):
         return [(start, end)]
-    kept = [w for w in inside if not (remove_fillers and is_filler(w["w"]))]
+    stuttered = stutters(inside) if remove_fillers else set()
+    kept = [w for k, w in enumerate(inside) if not (remove_fillers and (is_filler(w["w"]) or k in stuttered))]
     if not kept:
         return [(start, end)]
 
     lead, tail = 0.08, 0.14  # keep a little air around words so cuts don't clip syllables
-    ranges: list[list[float]] = [[start, kept[0]["e"]]]
+    first = start if kept[0] is inside[0] else max(start, kept[0]["s"] - lead)  # a stumble on the first word
+    ranges: list[list[float]] = [[first, kept[0]["e"]]]
     for prev, cur in zip(kept, kept[1:]):
         gap = cur["s"] - prev["e"]
-        dropped_filler = any(prev["e"] <= w["s"] < cur["s"] and is_filler(w["w"]) for w in inside) \
+        dropped_filler = any(prev["e"] <= w["s"] < cur["s"] and w not in kept for w in inside) \
             if remove_fillers else False
         limit = max_pause if max_pause is not None else float("inf")
         if gap > limit or (dropped_filler and gap > 0.12):

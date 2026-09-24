@@ -112,6 +112,9 @@ def parse_json3(path: Path) -> dict:
     return {"source": "youtube-captions", "words": words, "segments": group_segments(words)}
 
 
+CAPTIONS_FIRST_HOURS = 3.0
+
+
 def transcribe(video: Path, model_size: str = "small", device: str = "auto",
                captions: Path | None = None, log=None, language: str | None = None,
                long_hours: float = 1.5, long_model: str = "base", progress=None) -> dict:
@@ -125,7 +128,8 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
         wav = audio_for_analysis(video, video.parent / "audio16k.wav")
         seconds = _wav_seconds(wav)
         fast = seconds > long_hours * 3600
-        if fast and captions:
+        # captions have no punctuation and rough timing: only worth it when listening would take hours
+        if seconds > CAPTIONS_FIRST_HOURS * 3600 and captions:
             result = parse_json3(captions)
             if result["words"] and log:
                 log(f"Long video ({seconds / 3600:.1f} h): read its captions - watched in seconds")
@@ -135,7 +139,7 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
                 log(f"First run: downloading the '{size}' speech-recognition model (about 250-500 MB, "
                     "only once). This can take a few minutes.")
             if log and fast:
-                log(f"Long video ({seconds / 3600:.1f} h): high-speed mode (batched, '{size}' model)")
+                log(f"{seconds / 60:.0f}-minute video: high-speed listening (batched, '{size}' model)")
             t0 = time.time()
 
             def tick(f: float) -> None:

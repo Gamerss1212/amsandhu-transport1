@@ -220,3 +220,67 @@ def test_reaction_zoom_and_sound_design_render(cfg, tmp_path):
                     out_dir=tmp_path, name="fx", highlights=[4.0])
     info = render(job, get_preset("extreme"), cfg)  # low-res source + pops + hit + reaction zoom
     assert (tmp_path / "fx.mp4").exists() and info["zooms"] >= 1
+
+
+def test_self_review_trims_black_frames_and_fixes_quiet_audio(tmp_path):
+    import subprocess
+
+    from clipper.editing.review import measure, review_and_fix
+    from clipper.media import ffmpeg_exe
+
+    clip = tmp_path / "c.mp4"  # 0.6 s of black at the start, then picture; very quiet audio
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=black:s=1080x1920:r=30:d=0.6",
+                    "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=6", "-f", "lavfi", "-i", "sine=f=300:d=6.6",
+                    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a]volume=0.3[a]", "-map", "[v]", "-map",
+                    "[a]", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", str(clip)], check=True)
+    srt = tmp_path / "c.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello\n", encoding="utf-8")
+    before = measure(clip)
+    assert before.black and -40 < before.lufs < -25
+    fixed, retry, notes = review_and_fix(clip, 6.6, 1080, 1920, 30, srt, ["-c:v", "libx264", "-preset", "ultrafast"])
+    after = measure(clip)
+    assert {"black_start", "loudness"} <= {f.code for f in fixed} and not retry
+    assert not after.black and abs(after.lufs + 14) < 1.5 and after.true_peak < 0
+    assert "00:00:00,4" in srt.read_text()  # subtitles moved with the trim
+
+
+def test_failed_render_is_retried_with_a_safer_edit(cfg, tmp_path, monkeypatch):
+    import subprocess
+
+    from clipper.editing import RenderJob, editor, get_preset
+    from clipper.media import ffmpeg_exe
+
+    src = tmp_path / "s.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=6",
+                    "-f", "lavfi", "-i", "sine=f=200:d=6", "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+                    str(src)], check=True)
+    real, calls = editor._render_pass, []
+
+    def flaky(job, preset, cfg, encode):
+        calls.append(preset.shake)
+        if len(calls) == 1:
+            raise RuntimeError("ffmpeg failed: zoompan exploded")
+        return real(job, preset, cfg, encode)
+    monkeypatch.setattr(editor, "_render_pass", flaky)
+    words = [{"w": w, "s": 0.4 + i * 0.4, "e": 0.7 + i * 0.4} for i, w in enumerate("this is a test clip.".split())]
+    job = RenderJob(source=src, start=0, end=6, words=words, hook="Test", emphasis=[], out_dir=tmp_path, name="r")
+    info = editor.render(job, get_preset("extreme"), cfg)
+    assert calls == [True, False]  # second try without motion effects
+    assert (tmp_path / "r.mp4").exists() and info["review"]["passes"] == 2
+    assert any("render failed" in h for h in info["review"]["log"])
+
+
+def test_stutters_are_cut_but_emphasis_is_kept():
+    from clipper.editing.timeline import keep_ranges, stutters
+
+    w = [{"w": x, "s": i * 0.3, "e": i * 0.3 + 0.25} for i, x in enumerate("I I think the the answer is no, no, no.".split())]
+    assert stutters(w) == {0, 3}
+    ranges = keep_ranges(w, 0, 4, 0.4, True)
+    assert ranges[0][0] > 0.2 and len(ranges) == 2  # first "I" and one "the" gone
+
+
+def test_captions_move_below_a_low_face():
+    from clipper.editing.editor import face_safe_caption_y
+
+    assert face_safe_caption_y(([0], [[(0.5, 0.1, 0.35)]] * 5, []), 1280, 720, 1920) == 1380
+    assert face_safe_caption_y(([0], [[(0.5, 0.25, 0.6)]] * 5, []), 1280, 720, 1920) == 1500

@@ -289,6 +289,8 @@ def test_auto_editing_style():
     assert choose_level("funny", 40)[0] == "extreme"
     assert choose_level("emotional", 40)[0] == "professional"  # no shakes and flashes on a heartfelt moment
     assert choose_level("insightful", 25)[0] == "extreme"
+    assert choose_level("educational", 45)[0] == "hard"
+    assert choose_level("story", 45, energy=0.7)[0] == "professional"  # loud-ish talk is not automatically "extreme"
     assert choose_level("insightful", 58, energy=0.3)[0] == "professional"
     assert choose_level("insightful", 58, comedy=0.8)[0] == "extreme"
 

@@ -69,7 +69,7 @@ analysis:
   cookies_file: null
   whisper_model: small           # tiny/base/small/medium/large-v3 (bigger = more accurate, slower)
   whisper_device: auto           # auto/cpu/cuda
-  long_video_hours: 1.5          # longer videos (up to 30 h+) are watched in high-speed mode
+  long_video_hours: 0.33         # videos longer than this (20 min) are listened to in high-speed batched mode
   long_video_model: base         # lighter speech model used past 6 hours (when the video has no captions)
   chunk_minutes: 18              # transcript window sent to the AI per request
   min_clip_seconds: 20

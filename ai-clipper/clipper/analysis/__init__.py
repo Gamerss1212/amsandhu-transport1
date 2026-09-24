@@ -32,7 +32,7 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     language = None if llm else cfg["discovery"].get("language")
     transcript = transcribe(video, a["whisper_model"], a["whisper_device"], caption_file(video),
                             log=lambda m: rep.info("analysis", m), language=language,
-                            long_hours=float(a.get("long_video_hours", 1.5)),
+                            long_hours=float(a.get("long_video_hours", 0.33)),
                             long_model=a.get("long_video_model", "base"),
                             progress=lambda f, m: rep.progress("analysis", 0.2 + 0.15 * f, m))
     rep.info("analysis", f"Transcript: {len(transcript['words'])} words via {transcript['source']}")
