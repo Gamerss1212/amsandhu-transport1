@@ -4,94 +4,122 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Clipper</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ffe14d'/><path d='M12 9l12 7-12 7z' fill='%23111'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23a855f7'/><path d='M12 9l12 7-12 7z' fill='%23fff'/></svg>">
 <style>
   :root {
-    --bg: #0a0b0f; --panel: #12141a; --panel2: #191c24; --line: #262a35; --line2: #333845;
-    --text: #f2f3f7; --muted: #8d93a3; --faint: #5d6373;
-    --accent: #ffe14d; --accent-ink: #151200; --good: #2ee59d; --bad: #ff5a6a; --info: #7aa7ff;
-    --r: 16px; --r-sm: 10px;
+    --bg: #000; --panel: #0a0a0c; --panel2: #111114; --line: #1d1d22; --line2: #2c2c33;
+    --text: #fafafa; --muted: #9a9aa5; --faint: #5f5f69;
+    --accent: #a855f7; --accent2: #7c3aed; --accent-soft: #a855f71f; --accent-ink: #fff;
+    --good: #e9e9ee; --bad: #ff4d6d; --r: 18px;
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--text);
+  body { margin: 0; background: var(--bg); color: var(--text); overflow-x: hidden;
          font: 15px/1.5 "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
   button, input, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
-  button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  /* ---------- living background ---------- */
+  .bgfx { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .bgfx i { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .32; }
+  .bgfx i:nth-child(1) { width: 560px; height: 560px; background: var(--accent2); top: -200px; left: -120px; animation: drift1 22s ease-in-out infinite alternate; }
+  .bgfx i:nth-child(2) { width: 460px; height: 460px; background: #ffffff; opacity: .05; bottom: -160px; right: -100px; animation: drift2 26s ease-in-out infinite alternate; }
+  .bgfx i:nth-child(3) { width: 380px; height: 380px; background: var(--accent); top: 40%; left: 55%; opacity: .14; animation: drift1 30s ease-in-out infinite alternate-reverse; }
+  .bgfx::after { content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+    background-size: 48px 48px; mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%); }
+  @keyframes drift1 { to { transform: translate(140px, 90px) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate(-120px, -80px) scale(1.2); } }
+
+  /* ---------- header ---------- */
+  .top { max-width: 1240px; margin: 0 auto; padding: 22px 20px 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .logo { display: flex; align-items: center; gap: 11px; font-weight: 850; font-size: 21px; letter-spacing: -.03em; white-space: nowrap; }
+  .logo i { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; position: relative;
+            background: conic-gradient(from var(--spin, 0deg), var(--accent), #fff, var(--accent2), var(--accent)); animation: spin 6s linear infinite; }
+  .logo i::before { content: ""; position: absolute; inset: 2px; border-radius: 8px; background: #000; }
+  .logo i::after { content: ""; position: relative; border-left: 11px solid #fff; border-top: 7px solid transparent; border-bottom: 7px solid transparent; margin-left: 3px; }
+  @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+  @keyframes spin { to { --spin: 360deg; } }
+  .logo span { background: linear-gradient(90deg, #fff 30%, var(--accent) 50%, #fff 70%); background-size: 250% 100%;
+               -webkit-background-clip: text; background-clip: text; color: transparent; animation: sheen 5s linear infinite; }
+  @keyframes sheen { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+  .top .grow { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 99px;
+          border: 1px solid var(--line2); background: #0c0c0fcc; backdrop-filter: blur(8px); color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chipbtn { cursor: pointer; transition: border-color .2s, color .2s; } .chipbtn:hover { border-color: var(--accent); color: var(--text); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px #ffffff22; }
+  .dot.busy { background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: ping 1.4s infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 #a855f7aa; } 100% { box-shadow: 0 0 0 10px #a855f700; } }
 
   /* ---------- layout ---------- */
-  .top { max-width: 1240px; margin: 0 auto; padding: 22px 20px 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  @media (max-width: 560px) { .top #mode { order: 5; } }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -.02em; white-space: nowrap; }
-  .logo i { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; }
-  .logo i::after { content: ""; border-left: 11px solid #111; border-top: 7px solid transparent; border-bottom: 7px solid transparent; margin-left: 3px; }
-  .top .grow { flex: 1; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px;
-          border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 13px; white-space: nowrap; }
-  .chip b { color: var(--text); font-weight: 600; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px #2ee59d22; }
-  .dot.busy { background: var(--accent); box-shadow: 0 0 0 3px #ffe14d22; animation: pulse 1.2s infinite; }
-  @keyframes pulse { 50% { opacity: .35; } }
-
   main { max-width: 1240px; margin: 0 auto; padding: 8px 20px 70px;
          display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
   @media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 22px; }
+  .card { background: linear-gradient(180deg, #0e0e11ee, #08080aee); border: 1px solid var(--line); border-radius: var(--r); padding: 22px;
+          position: relative; animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
   .card + .card { margin-top: 20px; }
+  aside .card:nth-child(2) { animation-delay: .12s; } main > div .card:nth-child(3) { animation-delay: .1s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); } }
   .card h2 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
   .card .hint { color: var(--muted); font-size: 13px; margin-top: 2px; }
-  .label { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-           margin: 22px 0 10px; }
-  .label:first-child { margin-top: 0; }
+  .label { font-size: 11.5px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 24px 0 10px; }
+  .hero { font-size: clamp(26px, 4vw, 38px); font-weight: 900; letter-spacing: -.035em; line-height: 1.08; margin: 0 0 6px; }
+  .hero em { font-style: normal; background: linear-gradient(90deg, var(--accent), #fff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
   /* ---------- create ---------- */
   .seg { display: inline-grid; grid-template-columns: 1fr 1fr; background: var(--panel2); border: 1px solid var(--line);
-         border-radius: 12px; padding: 4px; width: 100%; max-width: 460px; }
-  .seg button { border: 0; background: transparent; padding: 9px 12px; border-radius: 9px; color: var(--muted); font-weight: 600; }
-  .seg button.on { background: var(--text); color: #0b0c10; }
+         border-radius: 13px; padding: 4px; width: 100%; max-width: 460px; position: relative; }
+  .seg button { border: 0; background: transparent; padding: 9px 12px; border-radius: 10px; color: var(--muted); font-weight: 650; position: relative; z-index: 1; transition: color .25s; }
+  .seg button.on { color: #000; }
+  .seg .pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 10px; background: #fff;
+               transition: transform .35s cubic-bezier(.3,1.4,.5,1); }
+  .seg.mine .pill { transform: translateX(100%); }
   textarea { width: 100%; min-height: 92px; resize: vertical; margin-top: 12px; padding: 12px 14px; border-radius: 12px;
-             border: 1px solid var(--line2); background: var(--bg); font-size: 14px; line-height: 1.5; }
+             border: 1px solid var(--line2); background: #000; font-size: 14px; line-height: 1.5; transition: border-color .2s, box-shadow .2s; }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); outline: none; }
   textarea::placeholder { color: var(--faint); }
   .auto-note { margin-top: 12px; color: var(--muted); font-size: 14px; display: flex; gap: 10px; align-items: flex-start; }
-  .auto-note svg { flex: none; margin-top: 2px; }
+  .auto-note svg { flex: none; margin-top: 2px; color: var(--accent); }
 
   .count { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line2); border-radius: 12px; overflow: hidden; }
-  .stepper button { width: 42px; height: 42px; border: 0; background: var(--panel2); font-size: 20px; line-height: 1; }
-  .stepper button:hover { background: var(--line); }
-  .stepper input { width: 56px; height: 42px; border: 0; background: var(--bg); text-align: center; font-weight: 800;
-                   font-size: 18px; -moz-appearance: textfield; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line2); border-radius: 13px; overflow: hidden; }
+  .stepper button { width: 44px; height: 44px; border: 0; background: var(--panel2); font-size: 20px; line-height: 1; transition: background .15s; }
+  .stepper button:hover { background: var(--accent2); }
+  .stepper input { width: 64px; height: 44px; border: 0; background: #000; text-align: center; font-weight: 850; font-size: 19px; -moz-appearance: textfield; }
   .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; }
-  .quick button { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 6px 13px;
-                  color: var(--muted); font-size: 13px; font-weight: 600; }
-  .quick button.on { border-color: var(--accent); color: var(--accent); }
-  .count .note { color: var(--muted); font-size: 13px; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; }
+  .quick button { border: 1px solid var(--line2); background: transparent; border-radius: 99px; padding: 6px 14px;
+                  color: var(--muted); font-size: 13px; font-weight: 650; transition: all .2s; }
+  .quick button:hover { color: #fff; border-color: #fff; }
+  .quick button.on { border-color: var(--accent); color: #fff; background: var(--accent-soft); box-shadow: 0 0 18px -4px var(--accent); }
+  .layers-prev { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 12px; min-height: 12px; }
+  .layers-prev i { width: 26px; height: 8px; border-radius: 9px; background: linear-gradient(90deg, var(--accent2), var(--accent));
+                   animation: pop .35s cubic-bezier(.3,1.6,.5,1) both; }
+  .layers-prev span { color: var(--muted); font-size: 12.5px; margin-left: 6px; line-height: 8px; }
 
-  .levels { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-  @media (max-width: 1100px) { .levels { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-  @media (max-width: 560px) { .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  .level { position: relative; text-align: left; background: var(--panel2); border: 1.5px solid var(--line);
-           border-radius: 14px; padding: 13px 13px 12px; display: flex; flex-direction: column; gap: 6px;
-           transition: border-color .15s, transform .15s; }
-  .level:hover { border-color: var(--line2); transform: translateY(-1px); }
-  .level.on { border-color: var(--accent); background: #1d1c14; }
-  .level .n { font-weight: 750; text-transform: capitalize; display: flex; align-items: center; gap: 7px; }
-  .level .bars { display: inline-flex; gap: 2px; align-items: flex-end; }
-  .level .bars i { width: 3px; border-radius: 2px; background: var(--line2); }
-  .level.on .bars i.f, .level .bars i.f { background: var(--accent); }
-  .level p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
-  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
-  .tags span { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-  .level.on .tags span { color: var(--text); }
+  .autoedit { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: center; padding: 16px;
+              border-radius: 15px; border: 1px solid #a855f744; background: radial-gradient(120% 140% at 0% 0%, #a855f722, transparent 60%), var(--panel2); }
+  .autoedit .orb { width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--accent) 45%, var(--accent2) 80%);
+                   box-shadow: 0 0 24px var(--accent); animation: breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: scale(1.08); box-shadow: 0 0 40px var(--accent); } }
+  .autoedit b { display: block; font-size: 15px; }
+  .autoedit p { margin: 2px 0 8px; color: var(--muted); font-size: 13px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tags span { font-size: 11.5px; padding: 3px 9px; border-radius: 99px; background: #000; color: #ddd; border: 1px solid var(--line2);
+               animation: pop .4s cubic-bezier(.3,1.6,.5,1) both; }
 
-  .go { width: 100%; margin-top: 24px; padding: 18px; border: 0; border-radius: 14px; background: var(--accent);
-        color: var(--accent-ink); font-size: 20px; font-weight: 850; letter-spacing: .01em;
-        box-shadow: 0 10px 30px -12px #ffe14d88; transition: transform .1s, filter .15s; }
-  .go:hover { filter: brightness(1.05); } .go:active { transform: scale(.995); }
-  .go:disabled { opacity: .45; cursor: progress; box-shadow: none; }
-  .go small { display: block; font-size: 13px; font-weight: 600; opacity: .7; margin-top: 2px; }
+  .go { width: 100%; margin-top: 24px; padding: 19px; border: 0; border-radius: 16px; background: #fff; color: #000;
+        font-size: 20px; font-weight: 900; letter-spacing: -.01em; position: relative; overflow: hidden; isolation: isolate;
+        box-shadow: 0 0 0 1px #fff, 0 18px 50px -18px var(--accent); transition: transform .15s, box-shadow .25s; }
+  .go::before { content: ""; position: absolute; inset: -2px; z-index: -1; background: linear-gradient(110deg, transparent 35%, #a855f755 50%, transparent 65%);
+                background-size: 250% 100%; animation: sheen 2.8s linear infinite; }
+  .go:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px #fff, 0 24px 60px -16px var(--accent); }
+  .go:active { transform: scale(.99); }
+  .go:disabled { opacity: .45; cursor: progress; transform: none; }
+  .go small { display: block; font-size: 13px; font-weight: 600; opacity: .6; margin-top: 2px; }
 
   /* ---------- progress ---------- */
   .runhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -99,94 +127,122 @@
   .timer { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; }
   .steps { margin-top: 16px; display: grid; gap: 10px; }
   .step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 14px;
-          border-radius: 12px; background: var(--panel2); border: 1px solid transparent; }
-  .step.active { border-color: #ffe14d55; }
+          border-radius: 13px; background: var(--panel2); border: 1px solid transparent; transition: border-color .3s, background .3s; }
+  .step.active { border-color: #a855f766; background: linear-gradient(90deg, #a855f712, var(--panel2)); }
   .step .ic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800;
-              background: var(--bg); color: var(--faint); border: 1.5px solid var(--line2); font-size: 14px; }
-  .step.active .ic { border-color: var(--accent); color: var(--accent); }
-  .step.active .ic::after { content: ""; position: absolute; }
-  .step.done .ic { background: var(--good); border-color: var(--good); color: #062b1c; }
-  .step.fail .ic { background: var(--bad); border-color: var(--bad); color: #2b0609; }
+              background: #000; color: var(--faint); border: 1.5px solid var(--line2); font-size: 14px; position: relative; }
+  .step.active .ic { border-color: var(--accent); color: #fff; }
+  .step.active .ic::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid transparent;
+                            border-top-color: var(--accent); animation: rot 1s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .step.done .ic { background: #fff; border-color: #fff; color: #000; }
+  .step.fail .ic { background: var(--bad); border-color: var(--bad); color: #000; }
   .step .t { font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
-  .step .t em { font-style: normal; color: var(--faint); font-weight: 500; font-size: 12px; }
+  .step .t em { font-style: normal; color: var(--accent); font-weight: 650; font-size: 12px; }
   .step .m { color: var(--muted); font-size: 13.5px; margin-top: 1px; overflow-wrap: anywhere; }
-  .bar { height: 5px; background: var(--bg); border-radius: 9px; overflow: hidden; margin-top: 8px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 9px; transition: width .5s; }
-  .step.done .bar i { background: var(--good); }
+  .bar { height: 5px; background: #000; border-radius: 9px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent2), var(--accent), #fff); background-size: 200% 100%;
+           border-radius: 9px; transition: width .5s; animation: sheen 2s linear infinite; }
+  .step.done .bar i { background: #fff; }
   .banner { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: 14px; display: none; }
-  .banner.err { display: block; background: #ff5a6a14; border: 1px solid #ff5a6a55; color: #ffc2c8; }
-  .banner.ok { display: block; background: #2ee59d12; border: 1px solid #2ee59d44; color: #b9f7df; }
+  .banner.err { display: block; background: #ff4d6d14; border: 1px solid #ff4d6d55; color: #ffc2cc; }
+  .banner.ok { display: block; background: #a855f714; border: 1px solid #a855f755; color: #eadcff; }
   details { margin-top: 14px; }
   summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
-  #log { max-height: 260px; overflow: auto; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg);
-         font: 12px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; color: #b7bcc8; }
-  #log .error { color: var(--bad); } #log .clip, #log .done { color: var(--good); }
+  #log { max-height: 260px; overflow: auto; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #000;
+         font: 12px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; color: #b7b7c2; }
+  #log .error { color: var(--bad); } #log .clip, #log .done { color: #d8b4fe; }
 
   /* ---------- clips ---------- */
   .cliphead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .cliphead .grow { flex: 1; }
-  .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 16px; }
-  .clip { background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
-          display: flex; flex-direction: column; transition: transform .15s, border-color .15s; }
-  .clip:hover { transform: translateY(-2px); border-color: var(--line2); }
-  .thumb { position: relative; aspect-ratio: 9/16; background: #000 center/cover no-repeat; border: 0; padding: 0; width: 100%; display: block; }
-  .thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 60%, #000c); }
+  .run { margin-top: 18px; }
+  .runlabel { font-size: 12px; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
+  .layer { margin-top: 12px; padding: 14px; border-radius: 16px; border: 1px solid var(--line); background: #060608; position: relative; }
+  .layer::before { content: ""; position: absolute; left: -1px; top: 18px; bottom: 18px; width: 3px; border-radius: 3px;
+                   background: linear-gradient(var(--accent), transparent); }
+  .layerhead { display: flex; align-items: center; gap: 8px; font-weight: 750; font-size: 14px; }
+  .layerhead span { color: var(--faint); font-weight: 500; font-size: 12.5px; }
+  .wide { grid-column: 1 / -1; margin-top: 0 !important; }
+  .clips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  @media (max-width: 900px) { .clips { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .clips { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .clips { gap: 14px; margin-top: 12px; }
+  .clip { background: var(--panel2); border: 1px solid var(--line); border-radius: 15px; overflow: hidden; position: relative;
+          display: flex; flex-direction: column; transition: transform .25s cubic-bezier(.2,.8,.2,1), border-color .25s, box-shadow .25s;
+          animation: pop .5s cubic-bezier(.3,1.4,.5,1) both; }
+  .clip:hover { transform: translateY(-4px); border-color: #a855f799; box-shadow: 0 18px 40px -20px var(--accent); }
+  .clip.gone { animation: vanish .35s ease forwards; }
+  @keyframes pop { from { opacity: 0; transform: scale(.9) translateY(10px); } }
+  @keyframes vanish { to { opacity: 0; transform: scale(.85); filter: blur(4px); } }
+  .thumb { position: relative; aspect-ratio: 9/16; background: #000 center/cover no-repeat; border: 0; padding: 0; width: 100%; display: block; overflow: hidden; }
+  .thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 55%, #000d); }
   .play { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 54px; height: 54px; border-radius: 50%;
-          background: #0009; backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 1; opacity: .9; }
+          background: #0008; backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 1; opacity: 0; scale: .7; transition: .25s; border: 1px solid #fff4; }
+  .clip:hover .play { opacity: 1; scale: 1; }
   .play::after { content: ""; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; margin-left: 4px; }
-  .badge { position: absolute; top: 10px; left: 10px; z-index: 1; background: var(--accent); color: var(--accent-ink);
-           font-weight: 800; font-size: 12px; padding: 3px 8px; border-radius: 99px; }
+  .badge { position: absolute; top: 10px; left: 10px; z-index: 1; background: #fff; color: #000; font-weight: 850; font-size: 12px; padding: 3px 8px; border-radius: 99px; }
   .dur { position: absolute; bottom: 10px; right: 10px; z-index: 1; font-size: 12px; font-weight: 700; color: #fff; }
-  .lvl { position: absolute; bottom: 10px; left: 10px; z-index: 1; font-size: 11px; color: #ddd; text-transform: capitalize; }
+  .lvl { position: absolute; bottom: 10px; left: 10px; z-index: 1; font-size: 11px; font-weight: 700; color: #fff; padding: 2px 8px; border-radius: 99px;
+         background: #a855f7cc; text-transform: capitalize; }
+  .del { position: absolute; top: 8px; right: 8px; z-index: 3; width: 30px; height: 30px; border-radius: 50%; border: 1px solid #fff3;
+         background: #000a; backdrop-filter: blur(6px); color: #fff; font-size: 15px; line-height: 1; display: grid; place-items: center;
+         transition: all .2s; }
+  .del:hover { background: #fff; color: #000; transform: rotate(90deg); }
+  .del.sure { width: auto; padding: 0 10px; border-radius: 99px; background: var(--bad); border-color: var(--bad); color: #000; font-weight: 800; font-size: 12px; transform: none; }
   .clip .meta { padding: 11px 12px 12px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
   .clip .title { font-weight: 700; font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .clip .src { color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row { display: flex; gap: 6px; margin-top: auto; padding-top: 9px; }
-  .btn { flex: 1; text-align: center; padding: 8px 4px; white-space: nowrap; border-radius: 9px; border: 1px solid var(--line2); background: transparent;
-         color: var(--text); text-decoration: none; font-size: 13px; font-weight: 600; }
-  .btn:hover { background: var(--line); }
-  .btn.primary { background: var(--text); color: #0b0c10; border-color: var(--text); }
-  .empty { color: var(--muted); font-size: 14px; padding: 26px 8px; text-align: center; grid-column: 1 / -1; }
-  .empty svg { display: block; margin: 0 auto 10px; opacity: .6; }
+  .btn { flex: 1; text-align: center; padding: 8px 4px; white-space: nowrap; border-radius: 10px; border: 1px solid var(--line2); background: transparent;
+         color: var(--text); text-decoration: none; font-size: 13px; font-weight: 650; transition: all .18s; }
+  .btn:hover { background: #fff; color: #000; border-color: #fff; }
+  .btn.primary { background: #fff; color: #000; border-color: #fff; }
+  .btn.primary:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .empty { color: var(--muted); font-size: 14px; padding: 30px 8px; text-align: center; grid-column: 1 / -1; }
+  .empty svg { display: block; margin: 0 auto 10px; opacity: .6; color: var(--accent); animation: breathe 3s ease-in-out infinite; }
   .where { color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+  .skel { aspect-ratio: 9/16; border-radius: 15px; border: 1px dashed #a855f755;
+          background: linear-gradient(110deg, #0c0c0f 30%, #1a1325 50%, #0c0c0f 70%); background-size: 250% 100%; animation: sheen 1.6s linear infinite; }
 
   /* ---------- side ---------- */
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-  .stat { background: var(--panel2); border-radius: 12px; padding: 12px; }
+  .stat { background: var(--panel2); border-radius: 13px; padding: 12px; border: 1px solid var(--line); }
   .stat b { display: block; font-size: 24px; letter-spacing: -.02em; }
   .stat span { color: var(--muted); font-size: 12px; }
   .plats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .lift { display: grid; gap: 8px; margin-top: 8px; }
   .lift div { display: grid; grid-template-columns: 96px minmax(0, 1fr) 42px; gap: 8px; align-items: center; font-size: 13px; }
-  .lift .track { height: 8px; background: var(--bg); border-radius: 9px; overflow: hidden; }
-  .lift .track i { display: block; height: 100%; background: var(--accent); border-radius: 9px; }
+  .lift .track { height: 8px; background: #000; border-radius: 9px; overflow: hidden; }
+  .lift .track i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 9px; animation: grow 1s cubic-bezier(.2,.8,.2,1) both; transform-origin: left; }
+  @keyframes grow { from { transform: scaleX(0); } }
   .lift em { font-style: normal; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
   .words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .words span { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--panel2); color: var(--muted); }
-  .sub2 { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 18px 0 4px; }
+  .words span { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--panel2); color: #ddd; border: 1px solid var(--line); }
+  .sub2 { font-size: 11.5px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin: 18px 0 4px; }
   .uploads { list-style: none; padding: 0; margin: 10px 0 0; font-size: 13px; }
   .uploads li { padding: 9px 0; border-top: 1px solid var(--line); }
   .uploads .ch { color: var(--faint); font-size: 12px; }
 
-  /* ---------- player ---------- */
-  dialog { border: 1px solid var(--line2); border-radius: 18px; background: var(--panel); color: var(--text); padding: 0;
-           width: min(880px, 94vw); max-height: 92vh; }
-  dialog::backdrop { background: #000b; backdrop-filter: blur(4px); }
+  /* ---------- dialogs ---------- */
+  dialog { border: 1px solid var(--line2); border-radius: 20px; background: #0a0a0c; color: var(--text); padding: 0; width: min(880px, 94vw); max-height: 92vh; }
+  dialog[open] { animation: pop .35s cubic-bezier(.3,1.3,.5,1); }
+  dialog::backdrop { background: #000c; backdrop-filter: blur(6px); }
   .player { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); }
   @media (max-width: 720px) { .player { grid-template-columns: 1fr; } }
   .player video { width: 100%; aspect-ratio: 9/16; max-height: 86vh; background: #000; display: block; }
   .player .side { padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .player h3 { margin: 0; font-size: 19px; line-height: 1.3; padding-right: 34px; }
   .player .facts { color: var(--muted); font-size: 13px; }
-  .player textarea { min-height: 160px; margin: 0; }
+  .player .why { font-size: 13px; color: #e9d5ff; background: var(--accent-soft); border: 1px solid #a855f744; padding: 8px 11px; border-radius: 10px; }
+  .player textarea { min-height: 150px; margin: 0; }
   .player .reasons { color: var(--faint); font-size: 12px; }
-  .x { position: absolute; top: 10px; right: 12px; border: 0; background: #0008; width: 34px; height: 34px; border-radius: 50%;
-       font-size: 18px; color: #fff; z-index: 2; }
-  .toast { position: fixed; bottom: 22px; left: 50%; translate: -50% 20px; background: var(--text); color: #0b0c10;
-           padding: 10px 16px; border-radius: 99px; font-weight: 700; font-size: 14px; opacity: 0; transition: .2s; pointer-events: none; }
+  .x { position: absolute; top: 10px; right: 12px; border: 0; background: #0008; width: 34px; height: 34px; border-radius: 50%; font-size: 18px; color: #fff; z-index: 2; transition: transform .2s; }
+  .x:hover { transform: rotate(90deg); }
+  .toast { position: fixed; bottom: 22px; left: 50%; translate: -50% 20px; background: #fff; color: #000; box-shadow: 0 10px 40px -10px var(--accent);
+           padding: 10px 18px; border-radius: 99px; font-weight: 750; font-size: 14px; opacity: 0; transition: .25s; pointer-events: none; z-index: 10; }
   .toast.show { opacity: 1; translate: -50% 0; }
-  [hidden] { display: none !important; }
-  .chipbtn { cursor: pointer; } .chipbtn:hover { border-color: var(--line2); color: var(--text); }
   .fixrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .fixrow .btn { flex: none; padding: 8px 14px; }
   #yt { width: min(620px, 94vw); padding: 24px; position: relative; }
@@ -196,14 +252,15 @@
   #yt ol { margin: 6px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
   #yt ol li { margin: 3px 0; }
   #yt .status { margin-top: 14px; font-size: 14px; }
-  .drop { display: block; margin-top: 10px; border: 1.5px dashed var(--line2); border-radius: 12px; padding: 16px; text-align: center;
-          color: var(--muted); font-size: 14px; cursor: pointer; }
-  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); }
+  .drop { display: block; margin-top: 10px; border: 1.5px dashed var(--line2); border-radius: 12px; padding: 16px; text-align: center; color: var(--muted); font-size: 14px; cursor: pointer; transition: .2s; }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
+<div class="bgfx" aria-hidden="true"><i></i><i></i><i></i></div>
 <header class="top">
-  <div class="logo"><i></i>AI Clipper</div>
+  <div class="logo"><i></i><span>AI Clipper</span></div>
   <div class="grow"></div>
   <button class="chip chipbtn" id="ytChip" title="YouTube login used for downloads">YouTube login</button>
   <span class="chip" id="mode"></span>
@@ -214,11 +271,12 @@
   <div>
     <!-- ================= create ================= -->
     <section class="card" id="create">
-      <h2>Make clips</h2>
-      <div class="hint">Finds the strongest moments, then edits them into vertical 9:16 clips for TikTok, Reels and Shorts.</div>
+      <h1 class="hero">Viral clips, <em>on autopilot.</em></h1>
+      <div class="hint">Watches whole videos (even 30-hour ones), picks the strongest moments and edits them into 9:16 clips for TikTok, Reels and Shorts.</div>
 
       <div class="label">1 · Videos</div>
-      <div class="seg" role="tablist">
+      <div class="seg" role="tablist" id="seg">
+        <span class="pill"></span>
         <button class="on" data-src="auto" role="tab">Find videos for me</button>
         <button data-src="mine" role="tab">Use my videos</button>
       </div>
@@ -226,21 +284,27 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <span>Studies <b id="minVideos">350</b>+ short videos to learn what's going viral right now, then finds popular long podcasts and interviews from the last two weeks and watches them in full.</span>
       </div>
-      <textarea id="src" hidden placeholder="Paste YouTube links or video file paths - one per line.&#10;https://www.youtube.com/watch?v=...&#10;C:\Users\you\Videos\my podcast.mp4"></textarea>
+      <textarea id="src" hidden placeholder="Paste YouTube links or video file paths - one per line. Videos up to 30 hours long work.&#10;https://www.youtube.com/watch?v=...&#10;C:\Users\you\Videos\my podcast.mp4"></textarea>
 
       <div class="label">2 · How many clips</div>
       <div class="count">
         <div class="stepper">
           <button id="minus" aria-label="Fewer clips">−</button>
-          <input id="n" type="number" min="1" max="50" value="5" aria-label="Number of clips">
+          <input id="n" type="number" min="1" max="100" value="5" aria-label="Number of clips">
           <button id="plus" aria-label="More clips">+</button>
         </div>
-        <div class="quick" id="quick"><button>1</button> <button>3</button> <button>5</button> <button>10</button></div>
-        <span class="note">Picked from as many videos as it takes - only the best make the cut.</span>
+        <div class="quick" id="quick"><button>5</button><button>10</button><button>25</button><button>50</button><button>100</button></div>
       </div>
+      <div class="layers-prev" id="layersPrev"></div>
 
-      <div class="label">3 · Editing style</div>
-      <div class="levels" id="levels"></div>
+      <div class="label">3 · Editing</div>
+      <div class="autoedit">
+        <div class="orb"></div>
+        <div><b>The AI edits every clip itself</b>
+          <p id="brainLine">It reads each moment and picks the edit that fits: fast cuts, shake and flashes for hype moments, a clean, polished edit with music for heartfelt ones.</p>
+          <div class="tags"><span>Face tracking</span><span>Karaoke captions</span><span>Eased zooms</span><span>Camera shake</span><span>Voice cleanup</span><span>Music ducking</span><span>B-roll split</span><span>Jump cuts</span><span>Hook title</span><span>Subtitles file</span></div>
+        </div>
+      </div>
 
       <button class="go" id="go">Get 5 clips<small id="goSub">About 15-40 minutes per long video</small></button>
     </section>
@@ -262,14 +326,6 @@
       <details><summary>Show details</summary><div id="log"></div></details>
     </section>
 
-    <!-- ================= clips ================= -->
-    <section class="card">
-      <div class="cliphead"><h2>Your clips <span id="nclips" class="timer"></span></h2><div class="grow"></div></div>
-      <div class="where" id="where"></div>
-      <div class="clips" id="clips">
-        <div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="m10 9 5 3-5 3z"/></svg>Your finished clips will appear here.</div>
-      </div>
-    </section>
   </div>
 
   <!-- ================= side ================= -->
@@ -285,6 +341,14 @@
       <ul class="uploads" id="uploads"></ul>
     </section>
   </aside>
+    <!-- ================= clips ================= -->
+  <section class="card wide">
+    <div class="cliphead"><h2>Your clips <span id="nclips" class="timer"></span></h2><div class="grow"></div></div>
+    <div class="where" id="where">Hit ✕ on a clip you don't like - the brain learns from it and finds different clips next time.</div>
+    <div id="clips">
+      <div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="m10 9 5 3-5 3z"/></svg>Your finished clips will appear here.</div>
+    </div>
+  </section>
 </main>
 
 <dialog id="dlg">
@@ -294,6 +358,7 @@
     <div class="side">
       <h3 id="pt"></h3>
       <div class="facts" id="pf"></div>
+      <div class="why" id="pw" hidden></div>
       <div class="label" style="margin:6px 0 0">Caption to post</div>
       <textarea id="pc" spellcheck="false"></textarea>
       <div class="row" style="padding:0">
@@ -329,10 +394,12 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const media = (c, f) => `/media/${encodeURIComponent(c.folder)}/${encodeURIComponent(f || "")}`;
 const PLATFORM = {tiktok: "TikTok", instagram: "Instagram", youtube_shorts: "YouTube Shorts"};
-let level = null, src = "auto", running = false, started = null, clipsCache = [], levelsCache = [];
+let src = "auto", running = false, started = null, clipsCache = [], firstStatus = true, pending = 0;
+const LAYER = 5, MAX = 100;
+const STYLE = {extreme: "Viral max", professional: "Pro polish", hard: "Punchy", normal: "Clean", simple: "Simple"};
 
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1800); }
-function count() { return Math.max(1, Math.min(50, parseInt($("n").value || "5", 10) || 5)); }
+function count() { return Math.max(1, Math.min(MAX, parseInt($("n").value || "5", 10) || 5)); }
 
 function refreshGo() {
   const n = count();
@@ -342,26 +409,22 @@ function refreshGo() {
   $("goSub").textContent = src === "auto" ? "About 15-40 minutes per long video it watches"
     : "About 1/3 of each video's length on a typical PC";
   document.querySelectorAll("#quick button").forEach((b) => b.classList.toggle("on", +b.textContent === n));
+  const layers = Math.ceil(n / LAYER);
+  $("layersPrev").innerHTML = Array.from({length: layers}, (_, i) => `<i style="animation-delay:${Math.min(i, 20) * 25}ms"></i>`).join("") +
+    `<span>${layers} layer${layers > 1 ? "s" : ""} of up to ${LAYER} clips${layers > 1 ? " - the first layer shows up early" : ""}</span>`;
   $("go").disabled = running || (src === "mine" && !links);
-}
-
-function renderLevels() {
-  $("levels").innerHTML = levelsCache.map((l, i) => `
-    <button class="level ${l.name === level ? "on" : ""}" data-l="${l.name}" aria-pressed="${l.name === level}">
-      <span class="n"><span class="bars">${[1, 2, 3, 4, 5].map((k) => `<i style="height:${4 + k * 2.4}px" class="${k <= i + 1 ? "f" : ""}"></i>`).join("")}</span>${esc(l.name)}</span>
-      <p>${esc(l.info)}</p>
-      <span class="tags">${l.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</span>
-    </button>`).join("");
-  document.querySelectorAll(".level").forEach((b) => b.onclick = () => { level = b.dataset.l; renderLevels(); });
 }
 
 async function loadStatus() {
   const st = await (await fetch("/api/status")).json();
-  if (!levelsCache.length) {
-    levelsCache = st.levels; level = st.default_level; $("n").value = st.default_clips; $("minVideos").textContent = st.min_videos;
-    $("where").textContent = "Saved in " + st.output_dir;
+  if (firstStatus) {
+    firstStatus = false; $("n").value = st.default_clips; $("minVideos").textContent = st.min_videos;
+    $("where").textContent = "Saved in " + st.output_dir + " · hit ✕ on a clip you don't like - the brain learns and finds different clips next time.";
+    refreshGo();
   }
-  renderLevels();
+  const br = st.brain;
+  if (br && br.made) $("brainLine").innerHTML = `It picks the edit each moment needs. <b style="display:inline;color:#d8b4fe">Brain:</b> ${br.made} clips made, learned from ${br.removed} you removed` +
+    (br.likes.length ? ` · leaning into ${esc(br.likes.join(", "))}` : "") + (br.avoids.length ? ` · avoiding ${esc(br.avoids.join(", ").replace(/^cat:|^len:|^chan:/g, ""))}` : "") + ".";
   renderYt(st.youtube_login);
   $("mode").innerHTML = st.keys.anthropic ? "<b>Claude</b>&nbsp;AI judge on" : "Free mode · <b>no keys needed</b>";
   setRunning(st.running);
@@ -391,24 +454,76 @@ function setRunning(on) {
   refreshGo();
 }
 
-async function loadClips() {
-  clipsCache = await (await fetch("/api/clips")).json();
-  $("nclips").textContent = clipsCache.length ? `· ${clipsCache.length}` : "";
-  if (!clipsCache.length) return;
-  $("clips").innerHTML = clipsCache.map((c, i) => `
-    <article class="clip">
+function clipCard(c) {
+  const i = clipsCache.indexOf(c);
+  return `<article class="clip" data-k="${i}">
+      <button class="del" data-del="${i}" title="Remove this clip" aria-label="Remove ${esc(c.title)}">✕</button>
       <button class="thumb" data-i="${i}" style="background-image:url('${media(c, c.thumbnail)}')" aria-label="Play ${esc(c.title)}">
         ${c.score != null ? `<span class="badge">${Math.round(c.score)}</span>` : ""}<span class="play"></span>
-        <span class="lvl">${esc(c.level || "")}</span><span class="dur">${Math.round(c.duration || 0)}s</span>
+        ${c.level ? `<span class="lvl" title="${esc(c.style_reason || "")}">${esc(STYLE[c.level] || c.level)}</span>` : ""}<span class="dur">${Math.round(c.duration || 0)}s</span>
       </button>
       <div class="meta">
         <div class="title">${esc(c.title)}</div>
         <div class="src">${esc(c.source.channel || c.source.title || "")}</div>
-        <div class="row"><a class="btn" href="${media(c, c.video)}" download>Download</a><button class="btn" data-copy="${i}">Copy caption</button></div>
+        <div class="row"><a class="btn" href="${media(c, c.video)}" download>Download</a><button class="btn" data-copy="${i}">Caption</button></div>
       </div>
-    </article>`).join("");
+    </article>`;
+}
+
+function groupClips(list) {
+  // runs (newest first) -> layers of 5
+  const runs = new Map();
+  for (const c of list) {
+    const key = c.run || "";
+    if (!runs.has(key)) runs.set(key, []);
+    runs.get(key).push(c);
+  }
+  const keys = [...runs.keys()].sort((a, b) => (b || "").localeCompare(a || ""));
+  return keys.map((k) => {
+    const items = runs.get(k), layers = new Map();
+    items.forEach((c, idx) => {
+      const L = c.layer || Math.floor(idx / LAYER) + 1;
+      if (!layers.has(L)) layers.set(L, []);
+      layers.get(L).push(c);
+    });
+    return {run: k, layers: [...layers.entries()].sort((a, b) => a[0] - b[0])};
+  });
+}
+
+async function loadClips() {
+  clipsCache = await (await fetch("/api/clips")).json();
+  $("nclips").textContent = clipsCache.length ? `· ${clipsCache.length}` : "";
+  if (!clipsCache.length) {
+    $("clips").innerHTML = `<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="m10 9 5 3-5 3z"/></svg>Your finished clips will appear here, in layers of ${LAYER}.</div>`;
+    return;
+  }
+  let first = true;
+  $("clips").innerHTML = groupClips(clipsCache).map((g) => {
+    const skel = first && running && pending > 0 ? pending : 0;
+    first = false;
+    return `<div class="run"><div class="runlabel">${g.run ? "Run · " + esc(new Date(g.run.replace(" ", "T")).toLocaleString()) : "Earlier clips"}</div>
+      ${g.layers.map(([L, items]) => `<div class="layer"><div class="layerhead">Layer ${L} <span>${items.length} clip${items.length > 1 ? "s" : ""}</span></div>
+        <div class="clips">${items.map(clipCard).join("")}</div></div>`).join("")}
+      ${skel ? `<div class="layer"><div class="layerhead">Coming up <span>editing now…</span></div><div class="clips">${"<div class='skel'></div>".repeat(Math.min(LAYER, skel))}</div></div>` : ""}
+    </div>`;
+  }).join("");
   document.querySelectorAll(".thumb").forEach((b) => b.onclick = () => openPlayer(clipsCache[b.dataset.i]));
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(clipsCache[b.dataset.copy].caption));
+  document.querySelectorAll("[data-del]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); removeClip(b, clipsCache[b.dataset.del]); });
+}
+
+async function removeClip(btn, c) {
+  if (!btn.classList.contains("sure")) {  // two taps, so a clip is never removed by accident
+    btn.classList.add("sure"); btn.textContent = "Remove?";
+    setTimeout(() => { if (btn.isConnected) { btn.classList.remove("sure"); btn.textContent = "✕"; } }, 3000);
+    return;
+  }
+  const card = btn.closest(".clip");
+  const r = await fetch(`/api/clips/${encodeURIComponent(c.folder)}/${encodeURIComponent(c.name)}`, {method: "DELETE"});
+  if (!r.ok) { toast("Couldn't remove it"); return; }
+  card.classList.add("gone");
+  toast("Removed - the brain will find different clips");
+  setTimeout(() => { loadClips(); loadStatus(); }, 350);
 }
 
 function copy(text) { navigator.clipboard.writeText(text).then(() => toast("Caption copied"), () => toast("Couldn't copy")); }
@@ -416,7 +531,8 @@ function copy(text) { navigator.clipboard.writeText(text).then(() => toast("Capt
 function openPlayer(c) {
   $("pv").src = media(c, c.video); $("pv").poster = media(c, c.thumbnail);
   $("pt").textContent = c.title; $("pc").value = c.caption || "";
-  $("pf").textContent = [c.score != null ? `Score ${c.score}` : "", `${Math.round(c.duration)}s`, c.level, c.source.channel || c.source.title].filter(Boolean).join(" · ");
+  $("pf").textContent = [c.score != null ? `Score ${c.score}` : "", `${Math.round(c.duration)}s`, STYLE[c.level] || c.level, c.source.channel || c.source.title].filter(Boolean).join(" · ");
+  $("pw").hidden = !c.style_reason; $("pw").textContent = c.style_reason ? `Edit chosen: ${STYLE[c.level] || c.level} - ${c.style_reason}` : "";
   $("pr").textContent = c.reasons || ""; $("pdl").href = media(c, c.video);
   $("dlg").showModal(); $("pv").play().catch(() => {});
 }
@@ -469,7 +585,9 @@ function handle(ev, live) {
     if (ev.progress != null) box.querySelector(".bar i").style.width = (ev.progress * 100) + "%";
   }
   if (ev.message && ev.kind !== "progress") log(ev);
-  if (ev.kind === "clip") { if (live) loadClips(); $("s-editing").querySelector("em").textContent = `${(+$("s-editing").dataset.n || 0) + 1} ready`; $("s-editing").dataset.n = (+$("s-editing").dataset.n || 0) + 1; }
+  if (ev.message && /^Goal: (\d+)/.test(ev.message)) pending = +ev.message.match(/^Goal: (\d+)/)[1];
+  if (ev.message && /editing layer (\d+)\/(\d+)/.test(ev.message)) { const m = ev.message.match(/layer (\d+)\/(\d+)/); $("s-editing").querySelector("em").textContent = `layer ${m[1]}/${m[2]}`; }
+  if (ev.kind === "clip") { pending = Math.max(0, pending - 1); if (live) loadClips(); $("s-editing").querySelector("em").textContent = `${(+$("s-editing").dataset.n || 0) + 1} ready`; $("s-editing").dataset.n = (+$("s-editing").dataset.n || 0) + 1; }
   if (ev.kind === "error" && ev.step === "pipeline") {
     const act = document.querySelector(".step.active") || $("s-analysis");
     act.classList.add("fail"); act.classList.remove("active"); act.querySelector(".ic").textContent = "!";
@@ -482,7 +600,7 @@ function handle(ev, live) {
   if (ev.kind === "done") {
     ORDER.forEach((s) => { const el = $("s-" + s); if (!el.classList.contains("fail")) { el.className = "step done"; el.querySelector(".ic").textContent = "✓"; el.querySelector(".bar i").style.width = "100%"; } });
     $("banner").className = "banner ok"; $("banner").textContent = ev.message; $("runTitle").textContent = "Done";
-    setRunning(false); if (live) { loadClips(); loadStatus(); }
+    pending = 0; setRunning(false); if (live) { loadClips(); loadStatus(); }
   }
 }
 function listen() {
@@ -519,6 +637,7 @@ $("ytForget").onclick = async () => { renderYt(await (await fetch("/api/youtube-
 document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {
   src = b.dataset.src;
   document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
+  $("seg").classList.toggle("mine", src === "mine");
   $("src").hidden = src !== "mine"; $("autoNote").hidden = src === "mine";
   if (src === "mine") $("src").focus();
   refreshGo();
@@ -530,9 +649,9 @@ document.querySelectorAll("#quick button").forEach((b) => b.onclick = () => { $(
 $("src").oninput = refreshGo;
 
 $("go").onclick = async () => {
-  const body = {level, clips: count()};
+  const body = {clips: count()};  // the editing style is chosen per clip by the app
   if (src === "mine") body.source = $("src").value;
-  resetSteps(src === "mine"); started = Date.now() / 1000; setRunning(true);
+  resetSteps(src === "mine"); started = Date.now() / 1000; pending = count(); setRunning(true);
   $("progress").scrollIntoView({behavior: "smooth", block: "start"});
   const r = await fetch(src === "mine" ? "/api/clip" : "/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   if (!r.ok) { const d = await r.json(); $("banner").className = "banner err"; $("banner").textContent = d.detail; setRunning(false); }

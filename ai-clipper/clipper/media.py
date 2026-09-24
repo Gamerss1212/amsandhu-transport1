@@ -56,6 +56,25 @@ def extract_audio(video: Path, out_wav: Path, sr: int = 16000) -> Path:
     return out_wav
 
 
+def frame_power(path: Path, hop: float = 0.1) -> tuple[np.ndarray, float]:
+    """Mean square level of every `hop`-second frame, read in pieces so even a 30-hour
+    video's audio never has to fit in memory at once."""
+    with wave.open(str(path), "rb") as w:
+        sr = w.getframerate()
+        step = int(sr * hop)
+        per_read = step * 600  # one minute at a time
+        out = []
+        while True:
+            raw = w.readframes(per_read)
+            if not raw:
+                break
+            a = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            n = len(a) // step
+            if n:
+                out.append(np.mean(a[: n * step].reshape(n, step) ** 2, axis=1))
+    return (np.concatenate(out) if out else np.zeros(0, dtype=np.float32)), hop
+
+
 def read_wav(path: Path) -> tuple[np.ndarray, int]:
     with wave.open(str(path), "rb") as w:
         sr = w.getframerate()

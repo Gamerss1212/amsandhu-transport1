@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import math
+import random
 import re
 import time
 import unicodedata
@@ -248,8 +249,9 @@ def poll_watchlist(cfg, db, rep=None) -> list[dict]:
     return new
 
 
-def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
+def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None) -> list[dict]:
     d = cfg["discovery"]
+    max_videos = max_videos or d.get("max_videos_per_run", 8)
     now = time.time()
     after = now - d["published_within_days"] * 86400
     cands: dict[str, dict] = {}
@@ -270,7 +272,7 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
         if d["use_trending_chart"]:
             rep.progress("discovery", 0.3, "Reading YouTube's most-popular chart...")
             ids |= set(api.trending_ids(d["region_code"]))
-        for q in d["search_queries"]:
+        for q in random.sample(d["search_queries"], len(d["search_queries"])):  # a different order every run
             rep.progress("discovery", 0.5, f"Searching YouTube: {q}")
             ids |= set(api.search(q, after, d["region_code"], d["language"]))
         details = api.videos(sorted(ids))
@@ -282,7 +284,7 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
     else:
         rep.info("discovery", "Free YouTube search (no key needed)")
         long_only = d["min_duration_minutes"] >= 20
-        for q in d["search_queries"]:
+        for q in random.sample(d["search_queries"], len(d["search_queries"])):  # a different order every run
             rep.progress("discovery", 0.4, f"Searching YouTube: {q}")
             try:
                 found = ytdlp_search(q, 40, d["published_within_days"], long_only)
@@ -295,7 +297,7 @@ def discover(cfg, db, rep, profile: dict | None) -> list[dict]:
         # the listing has no dates/likes: read them for the most promising videos
         lo_s = d["min_duration_minutes"] * 60
         pool = sorted((c for c in cands.values() if c["duration"] >= lo_s and not db.is_processed(c["video_id"])),
-                      key=lambda c: -c["views"])[: max(12, 2 * d.get("max_videos_per_run", 8))]
+                      key=lambda c: -c["views"])[: max(12, 2 * max_videos)]
         rep.progress("discovery", 0.7, f"Checking upload dates and engagement for {len(pool)} videos...")
         ytdlp_enrich(pool)
         for c in cands.values():

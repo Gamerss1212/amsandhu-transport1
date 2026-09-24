@@ -1,23 +1,31 @@
 """The one-button pipeline: trends -> discovery -> full-video analysis -> editing."""
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 from .analysis import analyze_video, clip_words
 from .analysis.download import source_key
 from .analysis.signals import peaks
+from .brain import Brain
 from .config import Config
 from .db import Database
 from .discovery import YouTubeAPI, discover
 from .editing import RenderJob, get_preset, render, write_post_files
+from .editing.auto import choose_level
 from .editing.safety import censor
 from .events import Event, Reporter
 from .llm import Claude
 from .trends import run_trend_analysis
 from .ytdl import BotCheck
+
+
+MAX_CLIPS = 100
+LAYER = 5  # clips are made and shown in layers of 5
 
 
 def split_sources(text: str) -> list[str]:
@@ -36,11 +44,17 @@ def slug(text: str, n: int = 40) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:n] or "clip"
 
 
+def _vid(result: dict) -> str:
+    meta = result["meta"]
+    return str(meta.get("id") or meta.get("webpage_url") or meta.get("title") or "")
+
+
 class Pipeline:
     def __init__(self, cfg: Config, rep: Reporter | None = None) -> None:
         self.cfg = cfg
         self.rep = rep or Reporter()
         self.db = Database(cfg.path("paths.db"))
+        self.brain = Brain(cfg.path("paths.db").parent / "brain.json")
         self.lock = threading.Lock()
         self.running = False
 
@@ -81,9 +95,10 @@ class Pipeline:
             self.lock.release()
 
     def _run(self, level: str | None, sources: list[str], want: int | None) -> list[dict]:
-        level = level or self.cfg["editing"]["default_level"]
-        preset = get_preset(level)
-        want = max(1, min(50, int(want or self.cfg["editing"].get("clips_per_run", 5))))
+        # "auto" (the default): every clip gets the editing style its moment needs
+        level = level if level and level != "auto" else None
+        want = max(1, min(MAX_CLIPS, int(want or self.cfg["editing"].get("clips_per_run", 5))))
+        layers = -(-want // LAYER)
         rep = self.rep
 
         if sources:
@@ -93,25 +108,51 @@ class Pipeline:
             candidates = [{"video_id": source_key(s), "input": s, "title": "", "channel": ""} for s in sources]
             max_videos = len(candidates)
         else:
+            # more clips need more videos: roughly one video for every 2 clips
+            max_videos = max(int(self.cfg["discovery"].get("max_videos_per_run", 8)), min(60, want // 2 + 3))
             # ---- Step 1: what goes viral right now (fresh every run)
             rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
                                "for what goes viral right now")
             profile = run_trend_analysis(self.cfg, self.db, rep)
             # ---- Step 2: find long-form videos and watch them fully
             rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
-            candidates = discover(self.cfg, self.db, rep, profile)
+            candidates = discover(self.cfg, self.db, rep, profile, max_videos)
             if not candidates:
                 raise RuntimeError("No suitable long-form videos found - widen discovery settings")
-            max_videos = max(1, int(self.cfg["discovery"].get("max_videos_per_run", 8)))
 
         llm = self._llm()
         yt = YouTubeAPI(self.cfg.youtube_key) if self.cfg.youtube_key else None
-        rep.info("analysis", f"Goal: the {want} best clip{'s' if want > 1 else ''}, from as many videos as it takes")
-        pool: list[tuple] = []  # (clip, analysis result) from every video watched
-        analyzed = blocked = 0
+        run_id = time.strftime("%Y-%m-%d %H:%M:%S")
+        rep.info("analysis", f"Goal: {want} clip{'s' if want > 1 else ''}" +
+                 (f" in {layers} layers of up to {LAYER}" if layers > 1 else "") +
+                 " - from as many videos as it takes")
+        pool: list[tuple] = []  # (clip, analysis result) watched but not edited yet
+        produced: list[dict] = []
+        analyzed = blocked = repeats = 0
+
+        def edit_layer() -> None:
+            nonlocal pool
+            n = min(LAYER, want - len(produced))
+            take, kinds = [], Counter(p.get("category") for p in produced)
+            for _ in range(min(n, len(pool))):  # best first, but learned taste + variety move clips up or down
+                best = max(pool, key=lambda cr: cr[0].final_score + self.brain.adjust(
+                    cr[0].category, cr[1]["meta"].get("channel") or "", cr[0].duration, kinds))
+                pool.remove(best)
+                take.append(best)
+                kinds[best[0].category] += 1
+            layer = len(produced) // LAYER + 1
+            rep.info("editing", f"Step 3/3 - editing layer {layer}/{layers}: {len(take)} clip"
+                                f"{'s' if len(take) > 1 else ''} from {len({id(r) for _, r in take})} video(s)")
+            order: list = []
+            for _, r in take:  # videos in the order of their best clip
+                if not any(r is o for o in order):
+                    order.append(r)
+            for result in order:
+                chosen = [c for c, r in take if r is result]
+                produced.extend(self._edit({**result, "clips": chosen}, level, run_id, layer))
+
         for cand in candidates:
-            # videos you pasted are all watched; when finding videos itself it stops once it has enough
-            if analyzed >= max_videos or (not sources and len(pool) >= want):
+            if analyzed >= max_videos or len(produced) >= want:
                 break
             rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
                      if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
@@ -131,48 +172,59 @@ class Pipeline:
                     self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
                 continue
             analyzed += 1
-            found = result["clips"]
+            vid = _vid(result)
+            fresh = [c for c in result["clips"] if not self.brain.already_made(vid, c.start, c.end)]
+            repeats += len(result["clips"]) - len(fresh)
+            if len(fresh) < len(result["clips"]):
+                rep.info("analysis", f"Skipped {len(result['clips']) - len(fresh)} moment(s) you already got before")
+            found = result["clips"] = fresh
             self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done" if found else "no_clips",
                                    len(found))
             pool += [(c, result) for c in found]
             rep.info("analysis", (f"{len(found)} strong clip{'s' if len(found) != 1 else ''} in this video - "
                                   if found else "Nothing in this video passed the strict review - ") +
-                     f"{min(len(pool), want)}/{want} collected")
+                     f"{min(len(produced) + len(pool), want)}/{want} collected")
+            # finding videos itself: every full layer is edited right away so clips arrive early.
+            # videos you pasted are all watched first, so the best clips across them win.
+            while not sources and len(pool) >= LAYER and len(produced) < want:
+                edit_layer()
 
-        if not pool:
+        while pool and len(produced) < want:
+            edit_layer()
+        if not produced and repeats:
+            raise RuntimeError("You already got every strong moment in these videos - "
+                               "paste other videos, or press Get clips to let it find new ones.")
+        if not produced and analyzed and not pool:
             raise RuntimeError(f"No clip passed the strict review in the {analyzed} video(s) watched. "
                                "Try again later, choose other videos, or lower analysis.local_content_threshold.")
-        if len(pool) < want:
-            rep.info("analysis", f"Only {len(pool)} clip(s) passed the strict review - editing those")
-        best = sorted(pool, key=lambda cr: -cr[0].final_score)[:want]
-
-        # ---- Step 3: edit the best clips, whichever videos they came from
-        rep.info("editing", f"Step 3/3 - editing {len(best)} clip{'s' if len(best) > 1 else ''} "
-                            f"from {len({id(r) for _, r in best})} video(s) at level '{preset.name}'")
-        produced: list[dict] = []
-        order, seen = [], set()  # videos in the order of their best clip
-        for _, r in best:
-            if id(r) not in seen:
-                seen.add(id(r))
-                order.append(r)
-        for result in order:
-            chosen = [c for c, r in best if r is result]
-            produced += self._edit({**result, "clips": chosen}, preset)
+        if len(produced) < want:
+            rep.info("editing", f"Made {len(produced)} of {want} clips - only these passed the strict review")
         return produced
 
-    def _edit(self, result: dict, preset) -> list[dict]:
+    def _edit(self, result: dict, level: str | None, run_id: str = "", layer: int = 1) -> list[dict]:
         meta, clips = result["meta"], result["clips"]
         out_dir = self.cfg.path("paths.output_dir") / \
             "_".join(x for x in (time.strftime("%Y-%m-%d"), slug(meta.get("channel") or "", 20),
                                  slug(str(meta.get("id") or "video"), 40)) if x != "clip")
         out_dir.mkdir(parents=True, exist_ok=True)
         energy = result["signals"]["raw"].get("energy")
+        comedy = float(result["signals"].get("comedy") or 0.0)
+        taken = {int(m.group(1)) for f in out_dir.glob("clip_*.json") if (m := re.match(r"clip_(\d+)", f.name))}
         out = []
         for i, clip in enumerate(clips, 1):
             safe = self.cfg["editing"].get("censor_profanity", True)
             title, hook = (censor(clip.title), censor(clip.hook)) if safe else (clip.title, clip.hook)
-            name = f"clip_{i:02d}_{slug(title, 30)}"
-            self.rep.progress("editing", (i - 1) / len(clips), f"Editing clip {i}/{len(clips)}: {title}")
+            num = next(n for n in range(1, 1000) if n not in taken)  # never overwrite an earlier clip
+            taken.add(num)
+            name = f"clip_{num:02d}_{slug(title, 30)}"
+            if level:
+                preset, why = get_preset(level), "level you chose"
+            else:
+                chosen, why = choose_level(clip.category, clip.duration, comedy,
+                                           (clip.signal_scores.get("energy") or 50) / 100)
+                preset = get_preset(chosen)
+            self.rep.progress("editing", (i - 1) / len(clips),
+                              f"Editing clip {i}/{len(clips)} ({preset.name} edit: {why}): {title}")
             highlights = []
             if energy is not None:
                 s, e = int(clip.start), int(clip.end)
@@ -186,9 +238,11 @@ class Pipeline:
             except Exception as exc:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")
                 continue
-            info["level"] = preset.name
+            self.brain.record_made(_vid(result), clip.start, clip.end, clip.category,
+                                   meta.get("channel") or "", name)
+            info.update(level=preset.name, style_reason=why, run=run_id, layer=layer)
             write_post_files(out_dir, name, clip.to_dict(), info, meta, safe)
-            item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook,
+            item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook, "category": clip.category,
                     "score": clip.final_score, "judge": clip.judge_score, **info}
             self.rep.emit(Event("clip", "editing", f"Clip ready: {title} (score {clip.final_score})",
                                 data=item))
@@ -213,6 +267,30 @@ def list_outputs(output_dir: Path) -> list[dict]:
                       "thumbnail": meta.get("thumbnail"), "title": clip.get("title"), "hook": clip.get("hook"),
                       "score": clip.get("final_score"), "judge": clip.get("judge_score"),
                       "duration": meta.get("duration"), "level": meta.get("level"),
+                      "style_reason": meta.get("style_reason", ""), "run": meta.get("run", ""),
+                      "layer": meta.get("layer"),
                       "caption": meta.get("post_caption", ""), "reasons": clip.get("judge_reasons", ""),
                       "source": meta.get("source", {})})
     return items
+
+
+def delete_clip(output_dir: Path, folder: str, name: str, brain: Brain | None = None) -> int:
+    """Remove a finished clip and its files (video, thumbnail, caption, subtitles, info)."""
+    if not re.fullmatch(r"[\w.-]+", folder) or not re.fullmatch(r"clip_[\w-]+", name):
+        raise ValueError("bad clip name")
+    d = output_dir / folder
+    removed = 0
+    meta_file = d / f"{name}.json"
+    if brain and meta_file.exists():  # learn from what you throw away
+        try:
+            brain.learn_removed(json.loads(meta_file.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            pass
+    for ext in (".mp4", ".jpg", ".txt", ".srt", ".json"):
+        f = d / f"{name}{ext}"
+        if f.exists():
+            f.unlink()
+            removed += 1
+    if d.exists() and not any(d.iterdir()):
+        d.rmdir()
+    return removed

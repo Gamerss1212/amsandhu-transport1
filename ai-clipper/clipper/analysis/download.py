@@ -63,10 +63,18 @@ def download(source: str, work_dir: Path, on_progress=None, log=None) -> tuple[P
                 on_progress(d.get("downloaded_bytes", 0) / total)
 
     def fetch() -> dict:
-        with ytdl.ydl(format=FORMAT, merge_output_format="mp4", outtmpl=str(out_dir / "source.%(ext)s"),
+        with ytdl.ydl(skip_download=True, socket_timeout=30) as y:
+            raw = y.extract_info(url, download=False, process=False)
+        hours = float(raw.get("duration") or 0) / 3600
+        fmt = FORMAT
+        if hours > 2:  # a 10-30 hour video at 1080p is tens of GB: 720p is plenty for 9:16 crops
+            fmt = FORMAT.replace("1080", "720")
+            if log:
+                log(f"Long video ({hours:.1f} h) - downloading at 720p to save time and disk space")
+        with ytdl.ydl(format=fmt, merge_output_format="mp4", outtmpl=str(out_dir / "source.%(ext)s"),
                       ffmpeg_location=ffmpeg_exe(), progress_hooks=[hook], socket_timeout=30, retries=10,
                       fragment_retries=10, continuedl=True) as y:
-            return y.sanitize_info(y.extract_info(url, download=True))
+            return y.sanitize_info(y.process_ie_result(raw, download=True))
 
     info = ytdl.with_login_fallback(fetch, log)
     if not video_path.exists():  # merged into another container

@@ -55,7 +55,7 @@ discovery:
   region_code: US
   language: en
   min_duration_minutes: 20
-  max_duration_minutes: 240
+  max_duration_minutes: 1800     # up to 30-hour videos (streams, marathons)
   published_within_days: 14
   min_views: 100000
   max_videos_per_run: 8          # most long videos to watch per click while collecting your clips
@@ -69,6 +69,8 @@ analysis:
   cookies_file: null
   whisper_model: small           # tiny/base/small/medium/large-v3 (bigger = more accurate, slower)
   whisper_device: auto           # auto/cpu/cuda
+  long_video_hours: 1.5          # longer videos (up to 30 h+) are watched in high-speed mode
+  long_video_model: base         # lighter speech model used past 6 hours (when the video has no captions)
   chunk_minutes: 18              # transcript window sent to the AI per request
   min_clip_seconds: 20
   max_clip_seconds: 75
@@ -93,7 +95,7 @@ analysis:
 
 # ---------------------------------------------------------------- Step 3
 editing:
-  default_level: professional    # simple | normal | hard | professional | extreme
+  default_level: auto            # auto = the app picks the edit each clip needs (or simple | normal | hard | professional | extreme)
   clips_per_run: 5               # how many finished clips you want per click (they can come from different videos)
   width: 1080
   height: 1920

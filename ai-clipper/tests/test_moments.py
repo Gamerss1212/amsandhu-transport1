@@ -164,3 +164,41 @@ def test_comedy_factor_separates_comedy_from_interviews():
     assert comedy_factor(comedy, minutes * 60) == 1.0
     assert comedy_factor(interview, minutes * 60) == 0.0
     assert comedy_factor(None, 600) == 0.0
+
+
+def test_frame_power_streams_audio(tmp_path):
+    import wave
+
+    import numpy as np
+    from clipper.media import frame_power
+
+    sr = 16000
+    audio = (np.sin(np.arange(sr * 130) / 7) * 8000 * (np.arange(sr * 130) > sr * 65)).astype(np.int16)
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(audio.tobytes())
+    power, hop = frame_power(path, 0.1)
+    assert len(power) == 1300 and hop == 0.1
+    assert power[:640].max() == 0 and power[660:].min() > 0.02
+
+
+def test_long_video_reads_captions_first(tmp_path, monkeypatch):
+    import json as _json
+
+    import importlib
+    tr = importlib.import_module("clipper.analysis.transcribe")
+
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"")
+    (tmp_path / "audio16k.wav").write_bytes(b"")
+    caps = tmp_path / "source.en.json3"
+    caps.write_text(_json.dumps({"events": [{"tStartMs": 0, "dDurationMs": 2000, "segs": [{"utf8": "hello there"}]}]}))
+    monkeypatch.setattr(tr, "_wav_seconds", lambda wav: 20 * 3600)  # a 20-hour stream
+
+    def no_whisper(*a, **k):
+        raise AssertionError("should not listen to 20 hours when captions exist")
+    monkeypatch.setattr(tr, "_whisper", no_whisper)
+    logs = []
+    out = tr.transcribe(video, captions=caps, log=logs.append)
+    assert out["source"] == "youtube-captions" and len(out["words"]) == 2
+    assert any("20.0 h" in m for m in logs)

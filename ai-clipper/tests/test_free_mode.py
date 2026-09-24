@@ -281,3 +281,88 @@ def test_youtube_login_upload(cfg):
     assert ytdl.login_status()["signed_in"]
     assert client.delete("/api/youtube-login").json()["signed_in"] is False
     assert "cookiefile" not in ytdl.options()
+
+
+def test_auto_editing_style():
+    from clipper.editing.auto import choose_level
+
+    assert choose_level("funny", 40)[0] == "extreme"
+    assert choose_level("emotional", 40)[0] == "professional"  # no shakes and flashes on a heartfelt moment
+    assert choose_level("insightful", 25)[0] == "extreme"
+    assert choose_level("insightful", 58, energy=0.3)[0] == "professional"
+    assert choose_level("insightful", 58, comedy=0.8)[0] == "extreme"
+
+
+def test_brain_learns_and_pushes_variety(tmp_path):
+    from clipper.brain import Brain
+
+    b = Brain(tmp_path / "brain.json")
+    base = b.adjust("funny", "Big Pod", 40)
+    b.record_made("vid", 10, 50, "funny", "Big Pod", "clip_01")
+    assert b.already_made("vid", 12, 48) and not b.already_made("vid", 100, 140)
+    b.learn_removed({"clip": {"category": "funny"}, "source": {"channel": "Big Pod"}, "duration": 40})
+    assert b.adjust("funny", "Big Pod", 40) < base - 5
+    assert Brain(tmp_path / "brain.json").summary()["removed"] == 1  # saved to disk
+    assert b.adjust("story", "", 40, batch=__import__("collections").Counter(story=2)) < b.adjust("story", "", 40)
+
+
+def test_auto_style_layers_no_repeats_and_remove(cfg, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from clipper.web.app import create_app
+
+    a = _video_with(tmp_path, cfg, "a.mp4", TEXT)
+    b = _video_with(tmp_path, cfg, "b.mp4", DULL + STRONG_B + DULL)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg["analysis"].update(min_clip_seconds=15, max_clip_seconds=60, use_comments=False)
+    pipe = Pipeline(cfg)
+    clips = pipe.clip_video(f"{a}\n{b}", None, clips=2)  # no level: the app picks one per clip
+    assert len(clips) == 2
+    assert all(c["level"] in ("extreme", "professional") and c["style_reason"] for c in clips)
+    assert {c["layer"] for c in clips} == {1}
+    outs = list_outputs(cfg.path("paths.output_dir"))
+    assert all(o["layer"] == 1 and o["run"] for o in outs)
+    assert all((cfg.path("paths.output_dir") / c["folder"] / f"{c['name']}.srt").exists() for c in clips)
+
+    # the same videos again: the brain never hands back a clip you already got
+    try:
+        again = Pipeline(cfg).clip_video(f"{a}\n{b}", None, clips=2)
+    except RuntimeError as exc:
+        assert "already got" in str(exc)
+    else:
+        assert not {(c["folder"], c["title"]) for c in again} & {(c["folder"], c["title"]) for c in clips}
+
+    client = TestClient(create_app(cfg))
+    c = clips[0]
+    assert client.delete(f"/api/clips/{c['folder']}/{c['name']}").json()["removed"] >= 4
+    assert client.delete(f"/api/clips/{c['folder']}/{c['name']}").status_code == 404
+    assert client.delete("/api/clips/..%2F..%2Fetc/clip_x").status_code in (400, 404)
+    assert len(list_outputs(cfg.path("paths.output_dir"))) == len(outs) - 1
+    assert client.get("/api/status").json()["brain"]["removed"] == 1
+
+
+def test_many_clips_are_made_in_layers(cfg, monkeypatch):
+    import types
+
+    pipe = Pipeline(cfg)
+    made = []
+
+    def fake_edit(result, level, run_id="", layer=1):
+        out = [{"layer": layer, "category": c.category} for c in result["clips"]]
+        made.extend(out)
+        return out
+    monkeypatch.setattr(pipe, "_edit", fake_edit)
+    from clipper.analysis.moments import Clip
+
+    def fake_analyze(cand, *a, **k):
+        clips = [Clip(start=i * 100, end=i * 100 + 40, title=f"t{i}", hook="h", category="story",
+                      final_score=90 - i) for i in range(6)]
+        return {"meta": {"id": cand["video_id"], "title": "v", "channel": "c"}, "clips": clips,
+                "signals": {"raw": {}}, "transcript": {"words": []}, "video": None}
+    monkeypatch.setattr(pipeline_mod, "analyze_video", fake_analyze)
+    monkeypatch.setattr(pipeline_mod, "run_trend_analysis", lambda *a: None)
+    monkeypatch.setattr(pipeline_mod, "discover", lambda *a: [
+        {"video_id": f"v{i}", "title": "x", "channel": "c"} for i in range(10)])
+    out = pipe._run(None, [], 12)
+    assert len(out) == 12
+    assert [sum(1 for m in made if m["layer"] == L) for L in (1, 2, 3)] == [5, 5, 2]
+    assert pipe._run.__func__ and pipeline_mod.MAX_CLIPS == 100

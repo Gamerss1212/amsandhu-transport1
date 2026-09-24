@@ -17,7 +17,7 @@ from ..config import Config
 from ..discovery import poll_watchlist
 from ..editing import LEVEL_NAMES
 from ..events import Reporter
-from ..pipeline import Pipeline, list_outputs
+from ..pipeline import LAYER, MAX_CLIPS, Pipeline, delete_clip, list_outputs
 
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
@@ -83,7 +83,7 @@ def create_app(cfg: Config) -> FastAPI:
         return {
             "running": pipe.running,
             "levels": [{"name": n, "info": LEVEL_INFO[n][0], "tags": LEVEL_INFO[n][1]} for n in LEVEL_NAMES],
-            "default_level": cfg["editing"]["default_level"],
+            "default_level": "auto", "brain": pipe.brain.summary(), "max_clips": MAX_CLIPS, "layer_size": LAYER,
             "default_clips": cfg["editing"].get("clips_per_run", 5),
             "min_videos": cfg["trends"]["min_videos"],
             "output_dir": str(out_dir.resolve()),
@@ -103,8 +103,8 @@ def create_app(cfg: Config) -> FastAPI:
     def run(req: RunRequest) -> dict:
         if pipe.running:
             raise HTTPException(409, "Already running")
-        level = req.level or cfg["editing"]["default_level"]
-        if level not in LEVEL_NAMES:
+        level = req.level or "auto"  # the app picks the edit each clip needs
+        if level not in (*LEVEL_NAMES, "auto"):
             raise HTTPException(400, f"Unknown level {level}")
 
         def job() -> None:
@@ -120,8 +120,8 @@ def create_app(cfg: Config) -> FastAPI:
     def clip(req: ClipRequest) -> dict:
         if pipe.running:
             raise HTTPException(409, "Already running")
-        level = req.level or cfg["editing"]["default_level"]
-        if level not in LEVEL_NAMES:
+        level = req.level or "auto"  # the app picks the edit each clip needs
+        if level not in (*LEVEL_NAMES, "auto"):
             raise HTTPException(400, f"Unknown level {level}")
         if not req.source.strip():
             raise HTTPException(400, "Paste a video link or a file path")
@@ -166,6 +166,16 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/api/clips")
     def clips() -> list[dict]:
         return list_outputs(out_dir)
+
+    @app.delete("/api/clips/{folder}/{name}")
+    def remove_clip(folder: str, name: str) -> dict:
+        try:
+            removed = delete_clip(out_dir, folder, name, pipe.brain)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        if not removed:
+            raise HTTPException(404, "Clip not found")
+        return {"removed": removed}
 
     @app.get("/api/uploads")
     def uploads() -> list[dict]:

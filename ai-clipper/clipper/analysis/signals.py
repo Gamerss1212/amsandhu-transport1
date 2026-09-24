@@ -14,7 +14,7 @@ import re
 
 import numpy as np
 
-from ..media import parse_ts, read_wav
+from ..media import frame_power, parse_ts
 from ..trends.analyzer import pct_rank
 
 _TS = re.compile(r"(?<![\d:])(\d{1,2}:\d{2}(?::\d{2})?)(?![\d:])")
@@ -49,14 +49,14 @@ def comment_curve(comments: list[dict], duration: int, spread: float = 8.0) -> n
 
 def energy_curve(wav_path, duration: int) -> np.ndarray | None:
     try:
-        audio, sr = read_wav(wav_path)
+        power, hop = frame_power(wav_path, 0.1)
     except Exception:
         return None
-    n = min(duration, len(audio) // sr)
+    per_s = int(round(1 / hop))
+    n = min(duration, len(power) // per_s)
     if n <= 0:
         return None
-    frames = audio[: n * sr].reshape(n, sr)
-    rms = np.sqrt(np.mean(frames ** 2, axis=1) + 1e-10)
+    rms = np.sqrt(np.mean(power[: n * per_s].reshape(n, per_s), axis=1) + 1e-10)
     db = 20 * np.log10(rms)
     # loudness relative to the local 2-minute context, so quiet and loud shows compare fairly
     k = 121
@@ -69,15 +69,13 @@ def energy_curve(wav_path, duration: int) -> np.ndarray | None:
 
 def reaction_curve(wav_path, words: list[dict], duration: int, hop: float = 0.1) -> np.ndarray | None:
     try:
-        audio, sr = read_wav(wav_path)
+        power, hop = frame_power(wav_path, hop)
     except Exception:
         return None
-    step = int(sr * hop)
-    n = len(audio) // step
+    n = len(power)
     if n < 50:
         return None
-    frames = audio[: n * step].reshape(n, step)
-    db = 20 * np.log10(np.sqrt(np.mean(frames ** 2, axis=1) + 1e-10))
+    db = 20 * np.log10(np.sqrt(power + 1e-10))
     # speech level = typical loudness while words are being spoken
     speaking = np.zeros(n, dtype=bool)
     for w in words:
