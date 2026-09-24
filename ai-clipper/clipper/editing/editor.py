@@ -122,9 +122,12 @@ def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, fl
 
 
 def zoom_events(words: list[dict], emphasis: set[str], cuts: list[float], preset: Preset,
-                duration: float) -> list[tuple[float, float, float]]:
+                duration: float, reactions: list[float] | None = None) -> list[tuple[float, float, float]]:
     """(start, end, extra zoom) punch-ins."""
     events: list[tuple[float, float, float]] = []
+    if preset.reaction_zoom:  # the laugh / biggest reaction: a slow, strong push-in on the face
+        for t in (reactions or [])[:3]:
+            events.append((max(0.0, t - 0.2), min(duration, t + 1.6), 0.18))
     if preset.zoom_punch:
         for w in words:
             if _norm(w["w"]) in emphasis and w["s"] > 0.5:
@@ -192,8 +195,8 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     broll = _pick(asset("broll_dir"), VIDEO_EXT, job.name) if preset.broll_split else None
     music = _pick(asset("music_dir"), AUDIO_EXT, job.name) if preset.music else None
     sfx = _pick(asset("sfx_dir"), AUDIO_EXT, job.name) if preset.sfx else None
-    if e.get("builtin_assets", True):  # your own files win; otherwise the built-in ones keep every feature on
-        cache = cfg.path("paths.work_dir").parent / "builtin_assets"
+    cache = cfg.path("paths.work_dir").parent / "builtin_assets" if e.get("builtin_assets", True) else None
+    if cache:  # your own files win; otherwise the built-in ones keep every feature on
         # no built-in b-roll: a generated background under a real speaker looks cheap, so the split
         # screen is used only with your own gameplay / b-roll (assets/broll); otherwise full-screen
         music = music or (builtin("music", cache) if preset.music else None)
@@ -213,6 +216,10 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     # ---------------------------------------------------------------- video
     g: list[str] = []
     stack_windows: list[tuple[float, float]] = []
+    # old / low-res footage is blown up ~3x: clean the noise first, then restore edge detail
+    low_res = min(in_w, in_h) < 700
+    clean = ",hqdn3d=2:1.5:5:4" if low_res else ""
+    sharpen = ",unsharp=7:7:0.9:5:5:0.0" if low_res else ""
     vertical_source = in_h > in_w
     if broll_i is not None and not vertical_source:
         top_h = H // 2
@@ -248,12 +255,14 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
                 g.append(stack_filters("[cstk]", "[stk]", track, in_w, in_h, W, H, e["accent_color"]))
                 stack_windows = track.stack_windows
                 src = "[cmain]"
-            g.append(f"{src}crop=w={crop_w}:h={in_h}:x='{x}':y=0,scale={W}:{H}:flags=lanczos,setsar=1[base]")
+            g.append(f"{src}crop=w={crop_w}:h={in_h}:x='{x}':y=0{clean},scale={W}:{H}:flags=lanczos,setsar=1"
+                     f"{sharpen}[base]")
             caption_y, layout = 1380, "crop+stack" if track.stack_windows else "crop"
 
     chain = "[base]"
     emphasis = {_norm(w) for phrase in job.emphasis for w in phrase.split()}
-    zooms = zoom_events(words, emphasis, cuts, preset, duration) if layout != "stack" else []
+    flashes = [t for t in (remap(h, ranges, preset.speed) for h in job.highlights) if t is not None and t > 0.3]
+    zooms = zoom_events(words, emphasis, cuts, preset, duration, flashes) if layout != "stack" else []
     if stack_windows:  # punch-ins belong to the single-speaker shots, never to the stacked view
         zooms = [z for z in zooms if not any(a - 0.3 < z[0] < b for a, b in stack_windows)]
     if zooms or (preset.slow_push and layout != "stack"):
@@ -273,7 +282,6 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     if preset.vignette:
         g.append(f"{chain}vignette=angle=PI/5:mode=forward[vig]")
         chain = "[vig]"
-    flashes = [t for t in (remap(h, ranges, preset.speed) for h in job.highlights) if t is not None and t > 0.3]
     if preset.flash and flashes:
         enable = "+".join(f"between(t,{p:.3f},{p + 0.09:.3f})" for p in flashes[:4])
         g.append(f"{chain}drawbox=x=0:y=0:w=iw:h=ih:color=white@0.55:t=fill:enable='{enable}'[flashed]")
@@ -290,7 +298,8 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
                     e["accent_color"], e["highlight_color"], emphasis, duration,
                     hook=(censor(job.hook) if safe else job.hook) if preset.hook_overlay else None,
                     caption_y=caption_y,
-                    size_scale=size_scale(e["font"], font_files), emphasis_pop=preset.emphasis_pop)
+                    size_scale=size_scale(e["font"], font_files), emphasis_pop=preset.emphasis_pop,
+                    mood=preset.mood)
     ass_path = work / "captions.ass"
     ass_path.write_text(ass, encoding="utf-8")
     g.append(f"{chain}subtitles=filename={_esc(ass_path)}:fontsdir={_esc(fonts_work)}[subbed]")
@@ -308,16 +317,33 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
              "equalizer=f=3200:t=q:w=1.2:g=2.5,") if preset.voice_enhance else ""
     g.append(f"[0:a]{voice}aformat=sample_rates=48000:channel_layouts=stereo[speech]")
     a_chain = "[speech]"
+    def mix_at(input_i: int, times: list[float], volume: float, tag: str, lead: float = 0.0) -> None:
+        """Lay one sound effect at each time (seconds) on top of the audio so far."""
+        nonlocal a_chain
+        g.append(f"[{input_i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={volume},"
+                 f"asplit={len(times)}" + "".join(f"[{tag}{i}]" for i in range(len(times))))
+        for i, t in enumerate(times):
+            ms = int(max(0.0, t - lead) * 1000)
+            g.append(f"[{tag}{i}]adelay={ms}|{ms}[{tag}d{i}]")
+        g.append(f"{a_chain}{''.join(f'[{tag}d{i}]' for i in range(len(times)))}"
+                 f"amix=inputs={len(times) + 1}:duration=first:normalize=0[with{tag}]")
+        a_chain = f"[with{tag}]"
+
     if sfx_i is not None:
-        hits = cuts[:6]
-        g.append(f"[{sfx_i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=0.45,asplit={len(hits)}" + "".join(f"[sx{i}]" for i in range(len(hits))))
-        mixes = []
-        for i, t in enumerate(hits):
-            ms = int(max(0.0, t - 0.15) * 1000)
-            g.append(f"[sx{i}]adelay={ms}|{ms}[sd{i}]")
-            mixes.append(f"[sd{i}]")
-        g.append(f"{a_chain}{''.join(mixes)}amix=inputs={len(hits) + 1}:duration=first:normalize=0[withsfx]")
-        a_chain = "[withsfx]"
+        mix_at(sfx_i, cuts[:6], 0.45, "sx", lead=0.15)  # whoosh lands on the jump cut
+    # sound design: a soft bloop on key words (never two within 1.5 s), a bass hit on the biggest moments
+    pops, last = [], -9.0
+    if preset.word_pops:
+        for w in words:
+            if _norm(w["w"]) in emphasis and w["s"] > 0.4 and w["s"] - last >= 1.5:
+                pops.append(w["s"])
+                last = w["s"]
+    for kind, times, volume in (("pop", pops[:8], 0.3), ("hit", flashes[:2] if preset.impact_hits else [], 0.6)):
+        path = builtin(kind, cache) if times and cache else None
+        if path:
+            inputs += ["-i", str(path)]
+            mix_at(idx, times, volume, kind)
+            idx += 1
     if music_i is not None:
         g.append(f"{a_chain}asplit[sp1][sp2]")
         # any track is first brought to a background level, then dipped ~6 dB under speech (not muted)

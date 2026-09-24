@@ -52,6 +52,22 @@ def make_whoosh(path: Path) -> Path:
     return path
 
 
+def make_pop(path: Path) -> Path:
+    """A soft, rounded 'bloop' for key words (pitch drops 1100 -> 500 Hz in 90 ms)."""
+    run_ffmpeg(["-f", "lavfi", "-i", "aevalsrc=exprs='0.8*sin(2*PI*(500*t+3300*(1-exp(-t*18))/18))"
+                "*(1-exp(-t*900))*exp(-t*38)':s=44100:d=0.16",
+                "-af", "lowpass=f=5000,volume=1.6,aformat=channel_layouts=stereo", str(path)])
+    return path
+
+
+def make_hit(path: Path) -> Path:
+    """A cinematic sub-bass hit for the biggest moment (sine drop 70 -> 38 Hz plus a short click)."""
+    run_ffmpeg(["-f", "lavfi", "-i", "aevalsrc=exprs='0.95*sin(2*PI*(38*t+32*(1-exp(-t*9))/9))*exp(-t*3.2)"
+                "+0.35*(random(0)*2-1)*exp(-t*160)':s=44100:d=1.1",
+                "-af", "lowpass=f=2200,alimiter=limit=0.95,aformat=channel_layouts=stereo", str(path)])
+    return path
+
+
 def make_broll(path: Path, seconds: int = 30) -> Path:
     """Colour-shifting gradients with drifting cell patterns - hypnotic, never distracting."""
     run_ffmpeg(["-f", "lavfi", "-i", f"gradients=s=540x480:type=spiral:speed=0.02:c0=0xff2d95:c1=0x7a00ff:"
@@ -67,6 +83,7 @@ def make_broll(path: Path, seconds: int = 30) -> Path:
 
 
 MAKERS = {"music": ("lofi_beat.mp3", make_music), "sfx": ("whoosh.wav", make_whoosh),
+          "pop": ("pop.wav", make_pop), "hit": ("hit.wav", make_hit),
           "broll": ("satisfying_loop_v2.mp4", make_broll)}
 
 

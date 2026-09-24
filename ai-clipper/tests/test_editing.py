@@ -186,3 +186,37 @@ def test_two_shots_inside_a_clip_switch_to_the_stacked_view():
     a, b = track.stack_windows[0]
     assert a == pytest.approx(6.6) and b == pytest.approx(13.4)  # switches exactly on the scene cuts
     assert track.speakers[0][0] < track.speakers[1][0]
+
+
+def test_heartfelt_clips_get_calm_captions_and_no_effects():
+    from clipper.editing.auto import tune
+    from clipper.editing.levels import get_preset
+
+    calm = tune(get_preset("extreme"), "emotional")
+    assert calm.mood == "calm" and not calm.uppercase and not (calm.shake or calm.flash or calm.word_pops)
+    assert tune(get_preset("extreme"), "funny") == get_preset("extreme")
+    words = [{"w": w, "s": i * 0.4, "e": i * 0.4 + 0.35} for i, w in enumerate("I miss her every day".split())]
+    hype = build_ass(words, "karaoke", 2, True, "Poppins", "#FFE600", "#00FF88", set(), 3.0)
+    soft = build_ass(words, "karaoke", 4, False, "Poppins", "#FFE600", "#00FF88", set(), 3.0, mood="calm")
+    assert "fscx112" in hype and "fscx112" not in soft and "\\fad(150,0)" in soft and "miss" in soft
+
+
+def test_reaction_zoom_and_sound_design_render(cfg, tmp_path):
+    import subprocess
+
+    from clipper.editing import RenderJob, get_preset, render
+    from clipper.editing.editor import zoom_events
+    from clipper.media import ffmpeg_exe
+
+    events = zoom_events([], set(), [], get_preset("extreme"), 20.0, reactions=[8.0])
+    assert any(a < 8.0 < b and z >= 0.15 for a, b, z in events)
+    src = tmp_path / "s.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8",
+                    "-f", "lavfi", "-i", "sine=f=200:d=8", "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+                    str(src)], check=True)
+    words = [{"w": w, "s": 0.5 + i * 0.5, "e": 0.9 + i * 0.5} for i, w in enumerate(
+        "This is insane money and totally insane right now honestly crazy stuff here.".split())]
+    job = RenderJob(source=src, start=0, end=8, words=words, hook="Wait for it", emphasis=["insane", "crazy"],
+                    out_dir=tmp_path, name="fx", highlights=[4.0])
+    info = render(job, get_preset("extreme"), cfg)  # low-res source + pops + hit + reaction zoom
+    assert (tmp_path / "fx.mp4").exists() and info["zooms"] >= 1

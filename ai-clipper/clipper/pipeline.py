@@ -16,7 +16,7 @@ from .config import Config
 from .db import Database
 from .discovery import YouTubeAPI, discover
 from .editing import RenderJob, get_preset, render, write_post_files
-from .editing.auto import choose_level
+from .editing.auto import choose_level, tune
 from .editing.safety import censor
 from .events import Event, Reporter
 from .llm import Claude
@@ -222,7 +222,7 @@ class Pipeline:
             else:
                 chosen, why = choose_level(clip.category, clip.duration, comedy,
                                            (clip.signal_scores.get("energy") or 50) / 100)
-                preset = get_preset(chosen)
+                preset = tune(get_preset(chosen), clip.category)  # calm captions for heartfelt moments
             self.rep.progress("editing", (i - 1) / len(clips),
                               f"Editing clip {i}/{len(clips)} ({preset.name} edit: {why}): {title}")
             highlights = []

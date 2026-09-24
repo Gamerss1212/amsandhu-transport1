@@ -85,11 +85,16 @@ def hook_fit(hook: str, size: int, max_words: int = 12) -> str:
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
               hook: str | None = None, caption_y: int = 1380, hook_seconds: float | None = None,
-              size_scale: float = 1.0, emphasis_pop: bool = False) -> str:
-    """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts."""
+              size_scale: float = 1.0, emphasis_pop: bool = False, mood: str = "hype") -> str:
+    """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts.
+    mood 'calm' (heartfelt moments): smaller sentence-case text that fades in, a soft warm highlight
+    and no bouncing - big bouncy captions would undercut an emotional moment."""
     words = [w for w in words if not is_filler(w["w"])]
     big = style != "basic"
-    size = round((92 if big else 70) * size_scale)
+    calm = mood == "calm"
+    if calm:
+        highlight = "#FFE7A3"
+    size = round((92 if big else 70) * size_scale * (0.82 if calm else 1.0))
     hook_size = round(74 * size_scale)
     outline = 7 if big else 5
     margin_v = H - caption_y
@@ -137,7 +142,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if style == "basic":
             add(g_start, g_end, " ".join(fmt(w) for w in g))
         elif style == "pop":
-            pop = "{\\fscx70\\fscy70\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}"
+            pop = "{\\fad(120,0)}" if calm else "{\\fscx70\\fscy70\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}"
             add(g_start, g_end, pop + " ".join(colored(w) for w in g))
         else:  # karaoke: the word being spoken lights up and pops
             for wi, w in enumerate(g):
@@ -146,11 +151,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 parts = []
                 for wj, other in enumerate(g):
                     if wj == wi:
-                        parts.append(f"{{\\c{ass_color(highlight)}\\fscx112\\fscy112}}{fmt(other)}"
+                        grow = 100 if calm else 112
+                        parts.append(f"{{\\c{ass_color(highlight)}\\fscx{grow}\\fscy{grow}}}{fmt(other)}"
                                      f"{{\\c&H00FFFFFF&\\fscx100\\fscy100}}")
                     else:
                         parts.append(colored(other))
-                intro = "{\\fscx80\\fscy80\\t(0,70,\\fscx100\\fscy100)}" if wi == 0 else ""
+                intro = ("{\\fad(150,0)}" if calm else "{\\fscx80\\fscy80\\t(0,70,\\fscx100\\fscy100)}") \
+                    if wi == 0 else ""
                 add(w_start, w_end, intro + " ".join(parts))
 
     if hook:

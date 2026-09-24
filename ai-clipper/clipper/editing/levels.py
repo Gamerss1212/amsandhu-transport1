@@ -31,6 +31,10 @@ class Preset:
     vignette: bool = False       # darkened edges pull the eye to the speaker
     shake: bool = False          # quick camera shake on the punch-in words
     emphasis_pop: bool = False   # emphasis words grow and tilt in the captions
+    word_pops: bool = False      # a soft "bloop" sound on key words
+    impact_hits: bool = False    # sub-bass hit on the biggest moments
+    reaction_zoom: bool = False  # punch in on laughs / the loudest reactions
+    mood: str = "hype"           # caption personality: "hype" (bold, uppercase) | "calm" (soft, sentence case)
 
 
 LEVELS: dict[str, Preset] = {
@@ -55,13 +59,15 @@ LEVELS: dict[str, Preset] = {
                            zoom_punch=True, pattern_zoom=True, slow_push=False, progress_bar=True,
                            color_grade=True, loudnorm=True, music=True, sfx=True, broll_split=False,
                            flash=False, speed=1.03, crf=18, x264_preset="medium",
-                           voice_enhance=True, vignette=True, emphasis_pop=True),
+                           voice_enhance=True, vignette=True, emphasis_pop=True, word_pops=True,
+                           reaction_zoom=True),
     "extreme": Preset("extreme", reframe="face_smooth", captions="karaoke", caption_words=2,
                       uppercase=True, max_pause=0.25, remove_fillers=True, hook_overlay=True,
                       zoom_punch=True, pattern_zoom=True, slow_push=True, progress_bar=True,
                       color_grade=True, loudnorm=True, music=True, sfx=True, broll_split=True,
                       flash=True, speed=1.07, crf=17, x264_preset="slow",
-                      voice_enhance=True, vignette=True, shake=True, emphasis_pop=True),
+                      voice_enhance=True, vignette=True, shake=True, emphasis_pop=True, word_pops=True,
+                      impact_hits=True, reaction_zoom=True),
 }
 
 LEVEL_NAMES = list(LEVELS)
