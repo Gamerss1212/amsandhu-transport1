@@ -389,11 +389,12 @@ def local_review(clips: list[Clip], meta: dict, transcript: dict, signals: dict,
         c.ai_score = r["score"]
         c.fatal_flaws = r["flaws"]
         c.judge_reasons = "Built-in judge: " + ", ".join(f"{k} {v * 100:.0f}" for k, v in r["parts"].items())
-        c.category = local_judge.category(text, r["parts"].get("laughs", 0.0))
+        comedy = max(float(signals.get("comedy") or 0), local_judge.comedy_prior(meta))
+        c.category = local_judge.category(text, r["parts"].get("laughs", 0.0), comedy)
         c.hook = local_judge.hook_text(segs, c.start, c.end, profile, transcript["words"])
         c.title = c.hook.rstrip(".")[:70]
         c.summary = text[:280]
-        c.caption, c.hashtags = local_judge.caption_and_tags(c.hook, c.category, meta, profile)
+        c.caption, c.hashtags = local_judge.caption_and_tags(c.hook, c.category, meta, profile, text)
         c.emphasis_words = local_judge.emphasis_words(text, profile)
         fuse(c, signals, profile, transcript_lines(segs, c.start, c.end), weights)
 

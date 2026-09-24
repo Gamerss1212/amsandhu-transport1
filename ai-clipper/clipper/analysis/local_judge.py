@@ -81,18 +81,61 @@ CATEGORY_TAG = {  # the hashtag people actually search for each kind of clip
     "story": "storytime", "educational": "learnontiktok", "insightful": "mindset", "drama": "drama",
     "motivational": "motivation", "serious": "truestory",
 }
-CAPTION_PROMPT = {
-    "serious": "Let that sink in.",
-    "funny": "I can't with this 😂 Who else lost it?",
-    "shocking": "Wait... is this real?? 🤯",
-    "emotional": "This one hit different ❤️",
-    "controversial": "Agree or disagree? 👇",
-    "story": "Wait for the ending 👀",
-    "educational": "Save this for later 📌",
-    "insightful": "Nobody talks about this 👇",
-    "drama": "He really said that 😳",
-    "motivational": "Needed to hear this today 🔥",
+CAPTION_PROMPT = {  # several per kind, picked per clip, so a feed of clips never repeats itself
+    "serious": ["Let that sink in.", "This deserves more attention.", "Hard to hear, but important."],
+    "funny": ["I can't with this 😂 Who else lost it?", "The delivery 😭😭", "Why is this so funny 💀",
+              "Not me replaying this 10 times 😂"],
+    "shocking": ["Wait... is this real?? 🤯", "I had to watch this twice 😳", "Nobody saw this coming 🤯"],
+    "emotional": ["This one hit different ❤️", "Not crying, you are 🥲", "Send this to someone who needs it ❤️"],
+    "controversial": ["Agree or disagree? 👇", "Be honest - is he right? 👇", "This is going to start a debate 👀"],
+    "story": ["Wait for the ending 👀", "Stay till the end 👀", "This story is wild 😳"],
+    "educational": ["Save this for later 📌", "Wish I knew this sooner 📌", "Share this with someone who needs it 📌"],
+    "insightful": ["Nobody talks about this 👇", "Read that again.", "This changed how I think about it 🤯",
+                   "Needed to hear this 👇"],
+    "drama": ["He really said that 😳", "The tension 😬", "You could feel the room go quiet 😳"],
+    "motivational": ["Needed to hear this today 🔥", "Watch this when you want to quit 🔥", "Bet on yourself 🔥"],
 }
+TOPICS = {  # words in the clip -> the hashtag people search for that subject
+    "money": r"\b(money|rich|broke|million|billion|dollars?|invest\w*|stocks?|crypto|salary|debt)\b",
+    "business": r"\b(business|company|startup|ceo|entrepreneur\w*|sales|brand|customers?)\b",
+    "relationships": r"\b(girlfriend|boyfriend|wife|husband|dating|marriage|married|divorce|relationship)\b",
+    "fitness": r"\b(gym|workout|muscle|diet|protein|weight|fitness|training)\b",
+    "comedy": r"\b(comedian|stand-?up|jokes?|comedy)\b",
+    "history": r"\b(war|nazis?|history|century|empire|1\d\d\d)\b",
+    "psychology": r"\b(brain|anxiety|depression|mindset|therapy|psycholog\w*)\b",
+    "sports": r"\b(nba|nfl|football|soccer|basketball|coach|championship|olympics?)\b",
+    "music": r"\b(song|album|rapper|singer|music|concert)\b",
+    "tech": r"\b(ai|iphone|apple|google|computer|software|robot|tech)\b",
+}
+_NAME_STOP = set("i i'm i've i'd i'll the a an and but so yeah okay oh well you he she we they it this that "
+                 "what why how when where who god mr mrs ms dr mom dad then there here now just maybe like also "
+                 "even still because after before if yes no not all some every one my your his her our their "
+                 "look listen right sure thank thanks please hey hello wow".split())
+
+
+def topic_tags(text: str, limit: int = 3) -> list[str]:
+    """Hashtags for what the clip is actually about: people/places named in it (#georgesoros), then
+    subjects (#money). Full names stay together; a lone capitalised word must come up 3+ times."""
+    from ..editing.safety import clean_tag
+
+    names: dict[str, int] = {}
+    for m in re.finditer(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*)\b", text):
+        parts = [p for p in m.group(1).split() if p.lower() not in _NAME_STOP]
+        start = m.start(1)
+        at_sentence_start = start == 0 or re.search(r"[.!?]\s*$", text[:start])
+        if not parts or (len(parts) == 1 and at_sentence_start):
+            continue
+        tag = "".join(p.lower() for p in parts)
+        names[tag] = names.get(tag, 0) + (2 if len(parts) > 1 else 1)
+    # a surname said alone counts for the full name (Soros -> georgesoros)
+    for full in [n for n in names if len(n) > 8]:
+        for short in [n for n in names if n != full and full.endswith(n)]:
+            names[full] += names.pop(short)
+    tags = [w for w, n in sorted(names.items(), key=lambda kv: -kv[1]) if n >= 3 and clean_tag(w)][:2]
+    low = text.lower()
+    hits = sorted(((len(re.findall(p, low)), t) for t, p in TOPICS.items()), reverse=True)
+    tags += [t for n, t in hits if n >= 2 and t not in tags]
+    return tags[:limit]
 
 
 def _clean(text: str, keep_laughs: bool = True) -> str:
@@ -352,21 +395,57 @@ def review(text: str, start: float, end: float, segments: list[dict], signals: d
     return score_window(segs, idx[0], idx[-1], signals, profile)
 
 
-def category(text: str, laughs: float = 0.0) -> str:
+CUES = {  # (pattern, weight) evidence for each kind of clip
+    "story": [(r"\b(i was|we were|when i|when we|one day|i remember|years old|back then|that night|"
+               r"the day|so i|and then|i said|he said|she said|they said|i told)\b", 1.0)],
+    "emotional": [(r"\b(love[ds]?|miss(ed)?|cried|crying|tears|mom|mum|dad|mother|father|passed away|proud|"
+                   r"heart|hug|grateful|lonely|forgive|family|my son|my daughter)\b", 1.2)],
+    "funny": [(r"\b(joke|jokes|funny|hilarious|kidding|lol|haha|laughing|dude|stupid|ridiculous|weird)\b", 1.0)],
+    "controversial": [(r"\b(disagree|wrong|overrated|unpopular|hate|nobody wants to hear|the truth is|"
+                       r"honestly|scam|lie|lies|lying|fake|should be illegal|problem with)\b", 1.1)],
+    "shocking": [(r"\b(million|billion|crazy|insane|never seen|can't believe|unbelievable|shocking|"
+                  r"no way|craziest|biggest)\b", 1.0)],
+    "educational": [(r"\b(how to|the reason|step|tip|the key|means|here's how|the trick|mistake|learn|"
+                     r"rule|first thing)\b", 1.0)],
+    "motivational": [(r"\b(dream|discipline|never give up|work hard|believe in yourself|success|grind|"
+                      r"keep going|bet on yourself|nobody believed)\b", 1.3)],
+}
+
+
+COMEDY_SHOW = re.compile(r"\b(comedy|comedian|stand-?up|funny|roast|prank|sketch|snl|improv|late night|"
+                         r"talk show|jokes?|hilarious)\b", re.I)
+
+
+def comedy_prior(meta: dict) -> float:
+    """0.5 when the video itself says it's comedy (title / channel / description)."""
+    blob = " ".join(str(meta.get(k) or "") for k in ("title", "channel"))
+    blob += " " + str(meta.get("description") or "")[:400] + " " + " ".join(meta.get("tags") or [])
+    return 0.5 if COMEDY_SHOW.search(blob) else 0.0
+
+
+def category(text: str, laughs: float = 0.0, comedy: float = 0.0) -> str:
+    """The kind of clip. It sets the editing mood, the caption line and the hashtags, so it weighs
+    all the evidence instead of defaulting: storytelling, feelings, humour, arguments, numbers..."""
     low = text.lower()
     if len(GRAVE.findall(low)) >= 2:  # heavy subject: never a jokey caption
         return "serious"
     if LAUGH.search(text) or laughs >= 0.5:
         return "funny"
-    scores = {}
+    scores: dict[str, float] = {}
     for h, pat in HOOK_PATTERNS.items():
         hits = len(re.findall(pat, low))
         if hits and h in CATEGORY_OF:
             cat = CATEGORY_OF[h]
-            scores[cat] = scores.get(cat, 0) + hits
-    if re.search(r"\b(dream|discipline|never give up|work hard|believe in yourself|success|grind)\b", low):
-        scores["motivational"] = scores.get("motivational", 0) + 2
-    return max(scores, key=scores.get) if scores else "insightful"
+            scores[cat] = scores.get(cat, 0) + 0.8 * hits
+    for cat, cues in CUES.items():
+        for pat, weight in cues:
+            hits = len(re.findall(pat, low))
+            if hits:
+                scores[cat] = scores.get(cat, 0) + weight * min(hits, 4)
+    if comedy >= 0.4:  # a comedy show: jokes are the default reading, even when they come as questions
+        scores["funny"] = scores.get("funny", 0) + 4.0
+    best = max(scores, key=scores.get) if scores else None
+    return best if best and scores[best] >= 1.5 else "insightful"
 
 
 def _pause_trim(seg: dict, words: list[dict], max_words: int = 12) -> str | None:
@@ -429,10 +508,13 @@ def emphasis_words(text: str, profile: dict | None, limit: int = 8) -> list[str]
     return found
 
 
-def caption_and_tags(hook: str, cat: str, meta: dict, profile: dict | None) -> tuple[str, list[str]]:
+def caption_and_tags(hook: str, cat: str, meta: dict, profile: dict | None,
+                     text: str = "") -> tuple[str, list[str]]:
     line = hook if hook.endswith(("...", "?", "!")) else hook.rstrip(".") + "..."
-    caption = f"{line}\n\n{CAPTION_PROMPT.get(cat, 'Thoughts? 👇')}"
-    tags: list[str] = []
+    options = CAPTION_PROMPT.get(cat) or ["Thoughts? 👇"]
+    prompt = options[sum(map(ord, hook)) % len(options)]  # stable per clip, varied across clips
+    caption = f"{line}\n\n{prompt}"
+    tags: list[str] = topic_tags(text) if text else []
     for r in (profile or {}).get("hashtag_lift", [])[:12]:
         t = r["feature"].lstrip("#")
         if t not in ("fyp", "foryou", "foryoupage", "viral", "shorts") and t not in tags:

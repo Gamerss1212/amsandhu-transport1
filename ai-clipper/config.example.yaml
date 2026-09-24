@@ -55,7 +55,7 @@ discovery:
   region_code: US
   language: en
   min_duration_minutes: 10       # shortest video to clip from
-  max_duration_minutes: 12000    # longest: 200 hours (streams, marathons) - over 3 h only the audio is downloaded
+  max_duration_minutes: 0        # 0 = no limit (200+ hour streams work - over 3 h only the audio is downloaded)
   published_within_days: 14
   min_views: 100000
   max_videos_per_run: 8          # most long videos to watch per click while collecting your clips

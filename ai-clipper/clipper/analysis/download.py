@@ -47,7 +47,7 @@ def _local(path: Path, out_dir: Path) -> tuple[Path, dict]:
 
 
 def download(source: str, work_dir: Path, on_progress=None, log=None,
-             max_hours: float = 200.0) -> tuple[Path, dict]:
+             max_hours: float | None = None) -> tuple[Path, dict]:
     """source: a YouTube video id, any video URL yt-dlp supports, or a local video file."""
     out_dir = work_dir / source_key(source)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -70,7 +70,7 @@ def download(source: str, work_dir: Path, on_progress=None, log=None,
         with ytdl.ydl(skip_download=True, socket_timeout=30) as y:
             raw = y.extract_info(url, download=False, process=False)
         hours = float(raw.get("duration") or 0) / 3600
-        if hours > max_hours:
+        if max_hours and hours > max_hours:
             raise RuntimeError(f"This video is {hours:.0f} hours long - the limit is {max_hours:.0f} hours")
         fmt, extra = FORMAT, {"merge_output_format": "mp4"}
         if hours > AUDIO_ONLY_HOURS:

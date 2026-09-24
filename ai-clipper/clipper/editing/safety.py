@@ -22,3 +22,11 @@ def _mask(m: re.Match) -> str:
 def censor(text: str) -> str:
     """'what the fuck' -> 'what the f*ck'. Leaves words like 'Dickens' or 'cocktail' alone."""
     return _PATTERN.sub(_mask, text) if text else text
+
+
+_EMBEDDED = re.compile(_EXPLICIT.replace("(mother)?", "").replace("|cum|", "|"), re.I)
+
+
+def clean_tag(tag: str) -> bool:
+    """False for hashtags with an explicit word anywhere inside (#slutmobile), which get posts limited."""
+    return not _EMBEDDED.search(tag)

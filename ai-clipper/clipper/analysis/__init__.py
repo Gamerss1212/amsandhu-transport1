@@ -22,11 +22,7 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
     video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
                            lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
-                           log=lambda m: rep.info("analysis", m),
-                           max_hours=cfg["discovery"].get("max_duration_minutes", 12000) / 60)
-    if float(info.get("duration") or 0) < cfg["discovery"].get("min_duration_minutes", 10) * 60:
-        rep.info("analysis", f"Note: this video is under {cfg['discovery'].get('min_duration_minutes', 10)} minutes "
-                             "- short videos rarely hold a strong standalone moment")
+                           log=lambda m: rep.info("analysis", m))  # any length: no limit on videos you choose
     meta = {**info, "title": info.get("title") or cand.get("title", ""),
             "channel": info.get("channel") or cand.get("channel", ""),
             "duration": float(info.get("duration") or cand.get("duration") or 0)}

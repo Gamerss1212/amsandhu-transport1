@@ -242,3 +242,21 @@ def test_clip_keeps_the_laugh_after_the_punchline():
     early = Clip(start=10.0, end=30.1, title="t", hook="h")
     let_reaction_land(early, {"raw": {"reaction": curve}}, [{"w": "More", "s": 31.0, "e": 31.4}], max_s=60)
     assert early.end <= 30.95  # never runs into the next words
+
+
+def test_categories_captions_and_topic_hashtags():
+    from clipper.analysis import local_judge as lj
+    from clipper.editing.safety import clean_tag
+
+    story = "When I was fourteen years old my father said we have to leave. I remember that night. And then we ran."
+    assert lj.category(story) == "story"
+    assert lj.category("I miss my mom every day. I love her and I cried when she passed away.") == "emotional"
+    assert lj.category("How do you do that? Why would you? What is it?", comedy=0.5) == "funny"
+    text = ("George Soros made a billion dollars. Then Randy Majerison laughed. People ask Soros about money. "
+            "Soros says the money is not the point. George Soros invests millions.")
+    tags = lj.topic_tags(text)
+    assert tags[0] == "georgesoros" and "money" in tags and not any(t.startswith("then") for t in tags)
+    assert not clean_tag("slutmobile") and clean_tag("georgesoros")
+    caps = {lj.caption_and_tags(h, "funny", {}, None)[0].splitlines()[-1] for h in ("a", "bb", "ccc", "dddd")}
+    assert len(caps) >= 2  # captions vary from clip to clip
+    assert lj.comedy_prior({"title": "Best stand-up of 2026"}) == 0.5 and lj.comedy_prior({"title": "News"}) == 0

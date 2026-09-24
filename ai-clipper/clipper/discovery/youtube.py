@@ -317,7 +317,8 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None) 
                                    "channel_id": "", "published": now, "duration": 0.0, "views": 0.0,
                                    "likes": 0.0, "comments": 0.0, "source": "watchlist", "live": False})
 
-    lo, hi = d["min_duration_minutes"] * 60, d["max_duration_minutes"] * 60
+    lo = d["min_duration_minutes"] * 60
+    hi = d["max_duration_minutes"] * 60 if d.get("max_duration_minutes") else float("inf")  # 0 = no limit
     kept = []
     for c in cands.values():
         if c.get("live") or db.is_processed(c["video_id"]):

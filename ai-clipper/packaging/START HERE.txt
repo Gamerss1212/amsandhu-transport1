@@ -13,10 +13,10 @@ SETUP (once)
 MAKE CLIPS
 4. Choose where the videos come from:
      - "Find videos for me": it studies 350+ short videos to learn what's going viral right now,
-       finds popular podcasts/interviews (10 minutes to 200 hours long) from the last 2 weeks,
+       finds popular podcasts/interviews (10 minutes and longer - no upper limit) from the last 2 weeks,
        and watches them in full.
      - "Use my videos": paste YouTube links or video file paths, one per line.
-       Any length from 10 minutes up to 200 hours works. Over 3 hours, only the audio is
+       Any length works - no limit, even 200+ hour streams. Over 3 hours, only the audio is
        downloaded to find the moments, then just the chosen clips are downloaded in full quality.
        Tip: in File Explorer, Shift + right-click a video -> "Copy as path", then paste.
 5. Choose how many clips you want (1 to 100). They are made in layers of 5, so the first
