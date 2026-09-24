@@ -452,5 +452,8 @@ def select_moments(meta: dict, transcript: dict, signals: dict, profile: dict | 
 
 
 def clip_words(words: list[dict], start: float, end: float) -> list[dict]:
-    return [w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+    # a word belongs to the clip when its middle is inside it: whisper sometimes gives the last word of the
+    # previous sentence zero length exactly at the clip start ("all." 1936.88-1936.88), which must not show
+    return [w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.05
+            and start < (w["s"] + w["e"]) / 2 < end or (w["s"] > start and w["e"] < end)]
 

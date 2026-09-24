@@ -214,3 +214,12 @@ def test_hook_stops_at_a_pause_when_punctuation_is_missing():
         t += 0.25 + gap
     segs = [{"s": 0, "e": ws[-1]["e"], "text": " ".join(w["w"] for w in ws)}]
     assert hook_text(segs, 0, 20, None, ws) == "I was ahead of his time"
+
+
+def test_zero_length_word_at_clip_start_is_not_in_the_clip():
+    from clipper.analysis.moments import clip_words
+
+    ws = [{"w": "it", "s": 1936.76, "e": 1936.88}, {"w": "all.", "s": 1936.88, "e": 1936.88},
+          {"w": "How", "s": 1936.9, "e": 1936.92}, {"w": "do", "s": 1936.92, "e": 1936.96}]
+    assert [w["w"] for w in clip_words(ws, 1936.88, 1990.0)] == ["How", "do"]
+    assert [w["w"] for w in clip_words(ws, 1936.7, 1936.93)] == ["it", "all.", "How"]

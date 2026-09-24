@@ -160,13 +160,13 @@ def check_clip(out_dir: Path, name: str, info: dict, words: list[dict], hook: st
 
 def check_moment(words: list[dict], start: float, end: float) -> list[str]:
     p = []
-    inside = [w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+    inside = clip_words(words, start, end)
     if not inside:
         return ["no words in the clip"]
-    before = [w for w in words if w["e"] <= start + 0.05]
+    before = [w for w in words if w["s"] < inside[0]["s"] and w not in inside]
     if before and not re.search(r"[.!?]['\"]?$", before[-1]["w"]) and inside[0]["s"] - before[-1]["e"] < 0.5:
         p.append(f"starts mid-sentence: '...{before[-1]['w']} | {inside[0]['w']}'")
-    after = [w for w in words if w["s"] >= end - 0.05]
+    after = [w for w in words if w["s"] > inside[-1]["s"] and w not in inside]
     if not re.search(r"[.!?]['\"]?$", inside[-1]["w"]) and after and after[0]["s"] - inside[-1]["e"] < 0.5:
         p.append(f"ends mid-sentence: '{inside[-1]['w']} | {after[0]['w']}...'")
     return p
