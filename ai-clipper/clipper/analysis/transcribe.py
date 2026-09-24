@@ -92,7 +92,7 @@ def _whisper(wav: Path, model_size: str, device: str, language: str | None = Non
                 for wd in seg.words or []:
                     text = wd.word.strip()
                     if text:
-                        words.append({"w": text, "s": round(base + wd.start, 3), "e": round(base + wd.end, 3)})
+                        words.append({"w": text, "s": round(float(base + wd.start), 3), "e": round(float(base + wd.end), 3)})
             if progress:
                 progress(min(1.0, (off + piece) / max(total, 1)))
     words.sort(key=lambda x: x["s"])
