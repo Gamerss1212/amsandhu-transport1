@@ -62,7 +62,7 @@ def _whisper(wav: Path, model_size: str, device: str, language: str | None = Non
     gpu = device == "cuda" or (device == "auto" and ctranslate2.get_cuda_device_count() > 0)
     # 8-bit on CPU is several times faster than the float32 fallback with near-identical accuracy
     model = WhisperModel(model_size, device="cuda" if gpu else "cpu", compute_type="float16" if gpu else "int8",
-                         cpu_threads=min(16, os.cpu_count() or 4))
+                         cpu_threads=max(2, min(16, os.cpu_count() or 4) // max(1, THREAD_SHARE)))
     runner = BatchedInferencePipeline(model) if fast else model
     total = max(1.0, media_seconds(wav))
     piece = 20 * 60
@@ -113,6 +113,7 @@ def parse_json3(path: Path) -> dict:
 
 
 CAPTIONS_FIRST_HOURS = 3.0
+THREAD_SHARE = 1  # listeners working at the same time split the CPU between them
 
 
 def transcribe(video: Path, model_size: str = "small", device: str = "auto",

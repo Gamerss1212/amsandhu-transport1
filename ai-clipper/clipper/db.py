@@ -29,6 +29,21 @@ CREATE TABLE IF NOT EXISTS uploads (
     published REAL,
     seen_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    folder TEXT NOT NULL,
+    name TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    scheduled_at REAL NOT NULL,
+    status TEXT NOT NULL,
+    caption TEXT,
+    remote_id TEXT,
+    error TEXT,
+    attempts INTEGER DEFAULT 0,
+    posted_at REAL,
+    stats TEXT,
+    stats_at REAL
+);
 CREATE TABLE IF NOT EXISTS processed (
     video_id TEXT PRIMARY KEY,
     title TEXT,
@@ -73,8 +88,28 @@ class Database:
                    (time.time(), profile.get("n_videos", 0), json.dumps(profile)))
 
     def latest_profile(self) -> dict | None:
-        rows = self._exec("SELECT profile FROM trend_profiles ORDER BY id DESC LIMIT 1")
-        return json.loads(rows[0]["profile"]) if rows else None
+        rows = self._exec("SELECT profile, created_at FROM trend_profiles ORDER BY id DESC LIMIT 1")
+        if not rows:
+            return None
+        return {**json.loads(rows[0]["profile"]), "created_at": rows[0]["created_at"]}
+
+    # -- posting schedule (TikTok / Instagram)
+    def add_post(self, folder: str, name: str, platform: str, at: float, caption: str) -> int:
+        with self._lock:
+            cur = self._conn.execute("INSERT INTO posts (folder, name, platform, scheduled_at, status, caption) "
+                                     "VALUES (?, ?, ?, ?, 'scheduled', ?)", (folder, name, platform, at, caption))
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def posts(self, where: str = "1=1", params=()) -> list[dict]:
+        rows = self._exec(f"SELECT * FROM posts WHERE {where} ORDER BY scheduled_at", params)
+        return [{**dict(r), "stats": json.loads(r["stats"]) if r["stats"] else None} for r in rows]
+
+    def update_post(self, post_id: int, **fields) -> None:
+        if "stats" in fields and fields["stats"] is not None:
+            fields["stats"] = json.dumps(fields["stats"])
+        cols = ", ".join(f"{k} = ?" for k in fields)
+        self._exec(f"UPDATE posts SET {cols} WHERE id = ?", (*fields.values(), post_id))
 
     # -- real-time uploads
     def add_upload(self, video_id: str, channel_id: str, channel: str, title: str,

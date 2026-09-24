@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,11 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import ytdl
+from ..agents import BOARD, TEAM_SIZE
 from ..config import Config
 from ..discovery import poll_watchlist
 from ..editing import LEVEL_NAMES
 from ..events import Reporter
 from ..pipeline import LAYER, MAX_CLIPS, Pipeline, delete_clip, list_outputs
+from ..publish import PostingService
+from ..trends import run_trend_analysis
 
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
@@ -40,6 +45,28 @@ class RunRequest(BaseModel):
     clips: int | None = None
 
 
+class ConnectRequest(BaseModel):
+    platform: str
+    access_token: str
+    user_id: str | None = None
+    refresh_token: str | None = None
+    client_key: str | None = None
+    client_secret: str | None = None
+    mode: str | None = None
+
+
+class ScheduleRequest(BaseModel):
+    folder: str
+    name: str
+    platforms: list[str]
+    when: str | float = "best"
+    caption: str | None = None
+
+
+class AutoRequest(BaseModel):
+    on: bool
+
+
 class CookiesRequest(BaseModel):
     text: str
 
@@ -55,6 +82,39 @@ def create_app(cfg: Config) -> FastAPI:
     pipe = Pipeline(cfg, rep)
     stop = threading.Event()
 
+    posting = PostingService(cfg, pipe.db, rep, BOARD)
+
+    def trend_scout() -> None:
+        """Keeps the trend study fresh in the background, so a click starts straight at finding videos."""
+        stop.wait(90)  # let the app start up first
+        while not stop.is_set():
+            t = cfg["trends"]
+            if t.get("background_refresh", True) and not pipe.running and not pipe.fresh_trends():
+                try:
+                    with BOARD.work("trend", "Refreshing what goes viral right now (background)"):
+                        run_trend_analysis(cfg, pipe.db, rep)
+                except Exception as exc:
+                    rep.info("trends", f"Background trend refresh skipped: {exc}")
+            stop.wait(max(0.5, float(t.get("refresh_hours", 4))) * 3600 / 4)
+
+    def auto_schedule(ev) -> None:
+        p = cfg.get("posting") or {}
+        if ev.kind != "clip" or not p.get("auto_schedule"):
+            return
+        connected = [k for k, v in posting.accounts.status().items() if v["connected"] and k in p.get("platforms", [])]
+        if connected:
+            try:
+                c = ev.data
+                caption = (out_dir / c["folder"] / f"{c['name']}.txt").read_text(encoding="utf-8").strip()
+                done = posting.schedule(c["folder"], c["name"], connected, "best", caption)
+                rep.info("posting", "Scheduled " + ", ".join(
+                    f"{d['platform'].title()} {time.strftime('%a %H:%M', time.localtime(d['scheduled_at']))}"
+                    for d in done))
+            except Exception as exc:
+                rep.error("posting", f"Auto-schedule failed: {exc}")
+
+    rep.subscribe(auto_schedule)
+
     def watcher() -> None:
         interval = max(1, cfg["discovery"]["watch_interval_minutes"]) * 60
         while not stop.is_set():
@@ -64,8 +124,9 @@ def create_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        thread = threading.Thread(target=watcher, daemon=True, name="upload-watcher")
-        thread.start()
+        for target, name in ((watcher, "upload-watcher"), (trend_scout, "trend-scout"),
+                             (lambda: posting.run_forever(stop), "publisher")):
+            threading.Thread(target=target, daemon=True, name=name).start()
         yield
         stop.set()
 
@@ -176,6 +237,53 @@ def create_app(cfg: Config) -> FastAPI:
         if not removed:
             raise HTTPException(404, "Clip not found")
         return {"removed": removed}
+
+    @app.get("/api/agents")
+    def agents() -> dict:
+        return {"size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot()}
+
+    @app.get("/api/posting")
+    def posting_status() -> dict:
+        posts = pipe.db.posts("scheduled_at > ?", (time.time() - 14 * 86400,))
+        return {"accounts": posting.accounts.status(), "posts": posts[-100:],
+                "auto_schedule": bool((cfg.get("posting") or {}).get("auto_schedule"))}
+
+    @app.post("/api/posting/connect")
+    def posting_connect(req: ConnectRequest) -> dict:
+        if req.platform not in ("tiktok", "instagram"):
+            raise HTTPException(400, "Unknown platform")
+        try:
+            return posting.connect(req.platform, req.model_dump(exclude={"platform"}))
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.delete("/api/posting/connect/{platform}")
+    def posting_disconnect(platform: str) -> dict:
+        posting.accounts.save(platform, None)
+        return posting.accounts.status()
+
+    @app.post("/api/posting/schedule")
+    def posting_schedule(req: ScheduleRequest) -> list[dict]:
+        txt = out_dir / req.folder / f"{req.name}.txt"
+        if not re.fullmatch(r"[\w.-]+", req.folder) or not re.fullmatch(r"clip_[\w-]+", req.name) or \
+                not (out_dir / req.folder / f"{req.name}.mp4").exists():
+            raise HTTPException(404, "Clip not found")
+        caption = req.caption if req.caption is not None else \
+            (txt.read_text(encoding="utf-8").strip() if txt.exists() else "")
+        try:
+            return posting.schedule(req.folder, req.name, req.platforms, req.when, caption)
+        except Exception as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/posting/auto")
+    def posting_auto(req: AutoRequest) -> dict:
+        cfg.setdefault("posting", {})["auto_schedule"] = bool(req.on)
+        return {"auto_schedule": bool(req.on)}
+
+    @app.delete("/api/posting/post/{post_id}")
+    def posting_cancel(post_id: int) -> dict:
+        pipe.db.update_post(post_id, status="cancelled")
+        return {"cancelled": post_id}
 
     @app.get("/api/uploads")
     def uploads() -> list[dict]:

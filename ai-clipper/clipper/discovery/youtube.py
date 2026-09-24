@@ -15,6 +15,7 @@ import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from urllib.parse import quote, quote_plus
 
@@ -256,7 +257,7 @@ def poll_watchlist(cfg, db, rep=None) -> list[dict]:
     return new
 
 
-def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None) -> list[dict]:
+def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, board=None) -> list[dict]:
     d = cfg["discovery"]
     max_videos = max_videos or d.get("max_videos_per_run", 8)
     now = time.time()
@@ -292,17 +293,24 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None) 
         rep.info("discovery", "Free YouTube search (no key needed)")
         # 10-20 minute videos come from the "medium" filter, everything longer from "long"
         lengths = ["long"] if d["min_duration_minutes"] >= 20 else ["long", "medium"]
-        for q in random.sample(d["search_queries"], len(d["search_queries"])):  # a different order every run
-            rep.progress("discovery", 0.4, f"Searching YouTube: {q}")
+        def search_one(q: str) -> list[dict]:
             found = []
-            for length in lengths:
-                try:
-                    found += ytdlp_search(q, 40 if length == "long" else 20, d["published_within_days"], length)
-                except Exception as exc:
-                    rep.info("discovery", f"Search '{q}' ({length}) failed: {exc}")
-            for v in found:
-                v["source"] = "search"
-                cands.setdefault(v["video_id"], v)
+            with (board.work("scout", f"Searching YouTube: {q}") if board else nullcontext()):
+                for length in lengths:
+                    try:
+                        found += ytdlp_search(q, 40 if length == "long" else 20, d["published_within_days"], length)
+                    except Exception as exc:
+                        rep.info("discovery", f"Search '{q}' ({length}) failed: {exc}")
+            return found
+
+        # the video scouts search in parallel (3 at a time - polite to YouTube, several times faster)
+        queries = random.sample(d["search_queries"], len(d["search_queries"]))  # a different order every run
+        rep.progress("discovery", 0.4, f"Video scouts searching YouTube ({len(queries)} searches)...")
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            for found in ex.map(search_one, queries):
+                for v in found:
+                    v["source"] = "search"
+                    cands.setdefault(v["video_id"], v)
         # the listing has no dates/likes: read them for the most promising videos
         lo_s = d["min_duration_minutes"] * 60
         pool = sorted((c for c in cands.values() if c["duration"] >= lo_s and not db.is_processed(c["video_id"])),

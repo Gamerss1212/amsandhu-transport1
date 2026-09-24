@@ -362,7 +362,7 @@ def test_many_clips_are_made_in_layers(cfg, monkeypatch):
                 "signals": {"raw": {}}, "transcript": {"words": []}, "video": None}
     monkeypatch.setattr(pipeline_mod, "analyze_video", fake_analyze)
     monkeypatch.setattr(pipeline_mod, "run_trend_analysis", lambda *a: None)
-    monkeypatch.setattr(pipeline_mod, "discover", lambda *a: [
+    monkeypatch.setattr(pipeline_mod, "discover", lambda *a, **k: [
         {"video_id": f"v{i}", "title": "x", "channel": "c"} for i in range(10)])
     out = pipe._run(None, [], 12)
     assert len(out) == 12

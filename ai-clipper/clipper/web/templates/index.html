@@ -258,6 +258,38 @@
   #yt .status { margin-top: 14px; font-size: 14px; }
   .drop { display: block; margin-top: 10px; border: 1.5px dashed var(--line2); border-radius: 12px; padding: 16px; text-align: center; color: var(--muted); font-size: 14px; cursor: pointer; transition: .2s; }
   .drop:hover, .drop.over { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+  /* ---------- agent team ---------- */
+  .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 7px; margin-top: 14px; }
+  .agent { position: relative; padding: 8px 9px; border-radius: 11px; background: var(--panel2); border: 1px solid var(--line);
+           font-size: 11.5px; line-height: 1.3; overflow: hidden; transition: border-color .3s, background .3s; }
+  .agent b { display: block; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .agent span { color: var(--faint); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.6em; }
+  .agent.busy { border-color: #a855f799; background: linear-gradient(135deg, #a855f722, var(--panel2)); }
+  .agent.busy b { color: #fff; } .agent.busy span { color: #d8b4fe; }
+  .agent.busy::after { content: ""; position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 50%;
+                       background: var(--accent); animation: ping 1.2s infinite; }
+  .teamhead { display: flex; align-items: baseline; gap: 10px; }
+  .teamhead .grow { flex: 1; }
+  /* ---------- posting ---------- */
+  .acct { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .acct .grow { flex: 1; } .acct .ok { color: #d8b4fe; font-size: 12px; }
+  .acct .btn { flex: none; padding: 6px 12px; }
+  .toggle { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .posts { list-style: none; padding: 0; margin: 10px 0 0; font-size: 12.5px; }
+  .posts li { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+  .posts li .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .posts .st { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line2); color: var(--muted); }
+  .posts .st.posted { border-color: var(--accent); color: #e9d5ff; } .posts .st.failed { border-color: var(--bad); color: #ffc2cc; }
+  .posts button { border: 0; background: none; color: var(--faint); cursor: pointer; }
+  .field { display: block; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .field input, .field select { display: block; width: 100%; margin-top: 4px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line2);
+                 background: #000; color: var(--text); font: inherit; font-size: 13px; }
+  .choices { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .choices label { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line2); border-radius: 99px; font-size: 13px; cursor: pointer; }
+  .choices input { accent-color: var(--accent); }
+  #postDlg, #acctDlg { width: min(560px, 94vw); padding: 24px; position: relative; }
+  #postDlg h3, #acctDlg h3 { margin: 0 0 4px; font-size: 20px; padding-right: 34px; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -330,6 +362,13 @@
       <details><summary>Show details</summary><div id="log"></div></details>
     </section>
 
+    <!-- ================= agent team ================= -->
+    <section class="card">
+      <div class="teamhead"><h2>Agent team</h2><div class="grow"></div><span class="timer" id="teamBusy"></span></div>
+      <div class="hint">25 specialised agents working at the same time, sharing one brain: scouts search while downloaders fetch, listeners transcribe, judges score, editors cut and reviewers check.</div>
+      <div class="agents" id="agents"></div>
+    </section>
+
   </div>
 
   <!-- ================= side ================= -->
@@ -338,6 +377,13 @@
       <h2>What's trending</h2>
       <div class="hint" id="trendWhen">Updates every time you press Get clips.</div>
       <div id="trend"><div class="empty">No trend study yet.</div></div>
+    </section>
+    <section class="card">
+      <h2>Posting</h2>
+      <div class="hint">Post to TikTok and Instagram at the best time for your audience. The app learns from your own results.</div>
+      <div id="accts" style="margin-top:10px"></div>
+      <label class="toggle"><input type="checkbox" id="autoPost"> Schedule every new clip automatically</label>
+      <ul class="posts" id="posts"></ul>
     </section>
     <section class="card">
       <h2>New uploads</h2>
@@ -390,6 +436,36 @@
   <div class="fixrow"><button class="btn" id="ytForget" hidden>Forget saved login</button></div>
   <div class="hint" style="margin-top:12px">Your login stays on this PC (data\youtube_cookies.txt) and is only used to download from YouTube.
   Don't share that file with anyone.</div>
+</dialog>
+<dialog id="postDlg">
+  <button class="x" id="postClose" aria-label="Close">×</button>
+  <h3>Post this clip</h3>
+  <div class="hint" id="postWhat"></div>
+  <div class="choices" id="postPlats"></div>
+  <div class="choices">
+    <label><input type="radio" name="when" value="best" checked> Best time (AI picks)</label>
+    <label><input type="radio" name="when" value="now"> Now</label>
+    <label><input type="radio" name="when" value="at"> At <input type="datetime-local" id="postAt" style="margin-left:4px;background:#000;color:#fff;border:1px solid var(--line2);border-radius:8px;padding:3px 6px"></label>
+  </div>
+  <label class="field">Caption<textarea id="postCaption" style="min-height:110px"></textarea></label>
+  <div class="fixrow"><button class="btn primary" id="postGo">Schedule</button></div>
+  <div class="status" id="postStatus" style="margin-top:10px;font-size:14px"></div>
+</dialog>
+<dialog id="acctDlg">
+  <button class="x" id="acctClose" aria-label="Close">×</button>
+  <h3 id="acctTitle">Connect</h3>
+  <div class="hint" id="acctHelp"></div>
+  <label class="field">Access token<input id="acctToken" autocomplete="off"></label>
+  <label class="field" id="acctUserWrap">Instagram user ID (optional)<input id="acctUser" autocomplete="off"></label>
+  <div id="ttExtra">
+    <label class="field">How to post<select id="acctMode"><option value="inbox">Send to my TikTok inbox - I press post in the app (works right away)</option><option value="direct">Post directly (needs a TikTok-approved app)</option></select></label>
+    <label class="field">Refresh token (optional - keeps you connected)<input id="acctRefresh" autocomplete="off"></label>
+    <label class="field">Client key (optional)<input id="acctKey" autocomplete="off"></label>
+    <label class="field">Client secret (optional)<input id="acctSecret" autocomplete="off" type="password"></label>
+  </div>
+  <div class="fixrow"><button class="btn primary" id="acctGo">Connect</button></div>
+  <div class="status" id="acctStatus" style="margin-top:10px;font-size:14px"></div>
+  <div class="hint" style="margin-top:12px">Tokens stay on this PC (data\social_accounts.json) and are only sent to TikTok / Instagram.</div>
 </dialog>
 <div class="toast" id="toast"></div>
 
@@ -486,7 +562,7 @@ function clipCard(c) {
       <div class="meta">
         <div class="title">${esc(c.title)}</div>
         <div class="src">${esc(c.source.channel || c.source.title || "")}</div>
-        <div class="row"><a class="btn" href="${media(c, c.video)}" download>Download</a><button class="btn" data-copy="${i}">Caption</button></div>
+        <div class="row"><a class="btn" href="${media(c, c.video)}" download>Save</a><button class="btn" data-copy="${i}">Caption</button><button class="btn" data-post="${i}">Post</button></div>
       </div>
     </article>`;
 }
@@ -531,6 +607,7 @@ async function loadClips() {
   document.querySelectorAll(".thumb").forEach((b) => b.onclick = () => openPlayer(clipsCache[b.dataset.i]));
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(clipsCache[b.dataset.copy].caption));
   document.querySelectorAll("[data-del]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); removeClip(b, clipsCache[b.dataset.del]); });
+  document.querySelectorAll("[data-post]").forEach((b) => b.onclick = () => openPost(clipsCache[b.dataset.post]));
 }
 
 async function removeClip(btn, c) {
@@ -679,7 +756,76 @@ $("go").onclick = async () => {
   if (!r.ok) { const d = await r.json(); $("banner").className = "banner err"; $("banner").textContent = d.detail; setRunning(false); }
 };
 
-loadStatus(); loadClips(); loadUploads(); listen();
+// ---------------- agent team ----------------
+async function loadAgents() {
+  try {
+    const d = await (await fetch("/api/agents")).json();
+    $("teamBusy").textContent = d.busy ? `${d.busy} of ${d.size} working` : `${d.size} agents ready`;
+    $("agents").innerHTML = d.agents.map((a) => `<div class="agent ${a.busy ? "busy" : ""}" title="${esc(a.about)}"><b>${esc(a.name)}</b><span>${esc(a.busy ? a.task : a.done ? `${a.done} job${a.done > 1 ? "s" : ""} done` : "ready")}</span></div>`).join("");
+  } catch (e) {}
+}
+setInterval(loadAgents, 1500);
+
+// ---------------- posting ----------------
+const PLAT = {tiktok: "TikTok", instagram: "Instagram"};
+let postingCache = {accounts: {}, posts: []}, postClip = null, acctPlat = null;
+async function loadPosting() {
+  try { postingCache = await (await fetch("/api/posting")).json(); } catch (e) { return; }
+  const a = postingCache.accounts;
+  $("accts").innerHTML = Object.keys(PLAT).map((p) => `<div class="acct"><b>${PLAT[p]}</b><div class="grow">${a[p] && a[p].connected ? `<span class="ok">✓ ${esc(a[p].name || "connected")}</span>` : `<span class="timer">not connected</span>`}</div>
+    ${a[p] && a[p].connected ? `<button class="btn" data-disc="${p}">Disconnect</button>` : `<button class="btn primary" data-conn="${p}">Connect</button>`}</div>`).join("");
+  document.querySelectorAll("[data-conn]").forEach((b) => b.onclick = () => openAcct(b.dataset.conn));
+  document.querySelectorAll("[data-disc]").forEach((b) => b.onclick = async () => { await fetch(`/api/posting/connect/${b.dataset.disc}`, {method: "DELETE"}); loadPosting(); });
+  $("autoPost").checked = !!postingCache.auto_schedule;
+  const posts = postingCache.posts.filter((p) => p.status !== "cancelled").slice(-12).reverse();
+  $("posts").innerHTML = posts.length ? posts.map((p) => `<li><span class="st ${p.status}">${p.status}</span><span class="grow" title="${esc(p.error || "")}">${PLAT[p.platform]} · ${new Date(p.scheduled_at * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})} · ${esc(p.name.replace(/^clip_\d+_/, "").replace(/-/g, " "))}${p.stats && p.stats.views != null ? ` · ${p.stats.views.toLocaleString()} views` : ""}</span>${p.status === "scheduled" ? `<button data-cancel="${p.id}" title="Cancel">✕</button>` : ""}</li>`).join("")
+    : `<li class="ch" style="color:var(--faint)">Nothing scheduled yet. Press Post on a clip.</li>`;
+  document.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = async () => { await fetch(`/api/posting/post/${b.dataset.cancel}`, {method: "DELETE"}); toast("Cancelled"); loadPosting(); });
+}
+$("autoPost").onchange = async (e) => { await fetch("/api/posting/auto", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({on: e.target.checked})}); toast(e.target.checked ? "New clips will be scheduled at the best times" : "Auto-schedule off"); };
+function openAcct(p) {
+  acctPlat = p; $("acctTitle").textContent = `Connect ${PLAT[p]}`; $("acctStatus").textContent = "";
+  $("ttExtra").hidden = p !== "tiktok"; $("acctUserWrap").hidden = p !== "instagram";
+  $("acctHelp").innerHTML = p === "tiktok"
+    ? "Uses TikTok's official Content Posting API. Create an app at developers.tiktok.com with the <b>video.upload</b> (and <b>video.publish</b>) scope, log in with your account, and paste the access token here."
+    : "Uses Instagram's official API (Business or Creator account). Create an app at developers.facebook.com with Instagram Login and the <b>instagram_business_content_publish</b> permission, generate a token for your account, and paste it here.";
+  $("acctDlg").showModal();
+}
+$("acctClose").onclick = () => $("acctDlg").close();
+$("acctGo").onclick = async () => {
+  const body = {platform: acctPlat, access_token: $("acctToken").value, user_id: $("acctUser").value || null,
+    refresh_token: $("acctRefresh").value || null, client_key: $("acctKey").value || null, client_secret: $("acctSecret").value || null,
+    mode: acctPlat === "tiktok" ? $("acctMode").value : null};
+  $("acctStatus").textContent = "Checking with " + PLAT[acctPlat] + "...";
+  const r = await fetch("/api/posting/connect", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (!r.ok) { $("acctStatus").innerHTML = `<span style="color:var(--bad)">${esc(d.detail)}</span>`; return; }
+  $("acctDlg").close(); toast(PLAT[acctPlat] + " connected"); loadPosting();
+};
+function openPost(c) {
+  postClip = c; $("postWhat").textContent = c.title; $("postCaption").value = c.caption || ""; $("postStatus").textContent = "";
+  const a = postingCache.accounts;
+  $("postPlats").innerHTML = Object.keys(PLAT).map((p) => `<label><input type="checkbox" value="${p}" ${a[p] && a[p].connected ? "checked" : "disabled"}> ${PLAT[p]}${a[p] && a[p].connected ? "" : " (connect first)"}</label>`).join("");
+  $("postDlg").showModal();
+}
+$("postClose").onclick = () => $("postDlg").close();
+$("postGo").onclick = async () => {
+  const platforms = [...document.querySelectorAll("#postPlats input:checked")].map((i) => i.value);
+  if (!platforms.length) { $("postStatus").innerHTML = `<span style="color:var(--bad)">Connect TikTok or Instagram first (Posting panel).</span>`; return; }
+  const w = document.querySelector("input[name=when]:checked").value;
+  const when = w === "at" ? new Date($("postAt").value).getTime() / 1000 : w;
+  if (w === "at" && !when) { $("postStatus").textContent = "Pick a date and time"; return; }
+  const r = await fetch("/api/posting/schedule", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({folder: postClip.folder, name: postClip.name, platforms, when, caption: $("postCaption").value})});
+  const d = await r.json();
+  if (!r.ok) { $("postStatus").innerHTML = `<span style="color:var(--bad)">${esc(d.detail)}</span>`; return; }
+  $("postDlg").close();
+  toast("Scheduled: " + d.map((x) => `${PLAT[x.platform]} ${new Date(x.scheduled_at * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})}`).join(", "));
+  loadPosting();
+};
+setInterval(loadPosting, 15000);
+
+loadStatus(); loadClips(); loadUploads(); listen(); loadAgents(); loadPosting();
 setInterval(loadUploads, 60000);
 </script>
 </body>

@@ -7,10 +7,12 @@ import re
 import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
+from .agents import BOARD, parallel_videos
 from .analysis import analyze_video, clip_words
+from .analysis import transcribe as transcribe_mod
 from .analysis.download import download_section, source_key
 from .analysis.signals import peaks
 from .brain import Brain
@@ -59,6 +61,14 @@ class Pipeline:
         self.brain = Brain(cfg.path("paths.db").parent / "brain.json")
         self.lock = threading.Lock()
         self.running = False
+
+    def fresh_trends(self) -> dict | None:
+        """The latest trend study, if the trend scouts made it recently enough to reuse."""
+        profile = self.db.latest_profile()
+        hours = float(self.cfg["trends"].get("reuse_hours", 6))
+        if profile and time.time() - profile.get("created_at", 0) < hours * 3600:
+            return profile
+        return None
 
     def _llm(self) -> Claude | None:
         if not self.cfg.anthropic_key:
@@ -113,12 +123,19 @@ class Pipeline:
             # more clips need more videos: roughly one video for every 2 clips
             max_videos = max(int(self.cfg["discovery"].get("max_videos_per_run", 8)), min(60, want // 2 + 3))
             # ---- Step 1: what goes viral right now (fresh every run)
-            rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
-                               "for what goes viral right now")
-            profile = run_trend_analysis(self.cfg, self.db, rep)
+            profile = self.fresh_trends()
+            if profile:
+                age = (time.time() - profile.get("created_at", time.time())) / 60
+                rep.info("trends", f"Step 1/3 - using the trend study the trend scouts made {age:.0f} min ago "
+                                   f"({profile.get('n_videos', 0)} short videos)")
+            else:
+                rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
+                                   "for what goes viral right now")
+                with BOARD.work("trend", "Studying what goes viral right now"):
+                    profile = run_trend_analysis(self.cfg, self.db, rep)
             # ---- Step 2: find long-form videos and watch them fully
             rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
-            candidates = discover(self.cfg, self.db, rep, profile, max_videos)
+            candidates = discover(self.cfg, self.db, rep, profile, max_videos, board=BOARD)
             if not candidates:
                 raise RuntimeError("No suitable long-form videos found - widen discovery settings")
 
@@ -153,43 +170,73 @@ class Pipeline:
                 chosen = [c for c, r in take if r is result]
                 produced.extend(self._edit({**result, "clips": chosen}, level, run_id, layer))
 
-        for cand in candidates:
-            if analyzed >= max_videos or len(produced) >= want:
-                break
+        # the agent team watches several videos at once (downloads overlap with listening); results are
+        # handled here, in one place, as each video finishes
+        todo = iter(candidates)
+        running: dict = {}
+        workers = parallel_videos(self.cfg)
+        if workers > 1:
+            rep.info("analysis", f"Agent team: watching {workers} videos at the same time")
+        transcribe_mod.THREAD_SHARE = workers
+
+        def start_next(ex) -> bool:
+            if analyzed + len(running) >= max_videos or len(produced) >= want:
+                return False
+            cand = next(todo, None)
+            if cand is None:
+                return False
             rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
                      if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
-            try:
-                result = analyze_video(cand, self.cfg, rep, profile, llm, yt)
-            except BotCheck as exc:
-                blocked += 1
-                rep.error("analysis", str(exc))
-                if blocked >= 2 or len(candidates) == 1:
-                    raise RuntimeError(str(exc)) from exc
-                continue
-            except Exception as exc:
-                rep.error("analysis", f"Skipping {cand.get('input') or cand['video_id']}: {exc}")
-                if len(candidates) == 1:
-                    raise
-                if not sources:
-                    self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
-                continue
-            analyzed += 1
-            vid = _vid(result)
-            fresh = [c for c in result["clips"] if not self.brain.already_made(vid, c.start, c.end)]
-            repeats += len(result["clips"]) - len(fresh)
-            if len(fresh) < len(result["clips"]):
-                rep.info("analysis", f"Skipped {len(result['clips']) - len(fresh)} moment(s) you already got before")
-            found = result["clips"] = fresh
-            self.db.mark_processed(cand["video_id"], result["meta"]["title"], "done" if found else "no_clips",
-                                   len(found))
-            pool += [(c, result) for c in found]
-            rep.info("analysis", (f"{len(found)} strong clip{'s' if len(found) != 1 else ''} in this video - "
-                                  if found else "Nothing in this video passed the strict review - ") +
-                     f"{min(len(produced) + len(pool), want)}/{want} collected")
-            # finding videos itself: every full layer is edited right away so clips arrive early.
-            # videos you pasted are all watched first, so the best clips across them win.
-            while not sources and len(pool) >= LAYER and len(produced) < want:
-                edit_layer()
+            running[ex.submit(analyze_video, cand, self.cfg, rep, profile, llm, yt)] = cand
+            return True
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            while len(running) < workers and start_next(ex):
+                pass
+            while running:
+                finished, _ = wait(list(running), return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    cand = running.pop(fut)
+                    try:
+                        result = fut.result()
+                    except BotCheck as exc:
+                        blocked += 1
+                        rep.error("analysis", str(exc))
+                        if blocked >= 2 or len(candidates) == 1:
+                            for f in running:
+                                f.cancel()
+                            raise RuntimeError(str(exc)) from exc
+                        start_next(ex)
+                        continue
+                    except Exception as exc:
+                        rep.error("analysis", f"Skipping {cand.get('input') or cand['video_id']}: {exc}")
+                        if len(candidates) == 1:
+                            raise
+                        if not sources:
+                            self.db.mark_processed(cand["video_id"], cand.get("title", ""), "failed")
+                        start_next(ex)
+                        continue
+                    analyzed += 1
+                    vid = _vid(result)
+                    with BOARD.work("brain", "Checking the shared memory for repeats"):
+                        fresh = [c for c in result["clips"] if not self.brain.already_made(vid, c.start, c.end)]
+                    repeats += len(result["clips"]) - len(fresh)
+                    if len(fresh) < len(result["clips"]):
+                        rep.info("analysis", f"Skipped {len(result['clips']) - len(fresh)} moment(s) "
+                                             "you already got before")
+                    found = result["clips"] = fresh
+                    self.db.mark_processed(cand["video_id"], result["meta"]["title"],
+                                           "done" if found else "no_clips", len(found))
+                    pool += [(c, result) for c in found]
+                    rep.info("analysis", (f"{len(found)} strong clip{'s' if len(found) != 1 else ''} in this "
+                                          "video - " if found else "Nothing in this video passed the strict "
+                                                                   "review - ") +
+                             f"{min(len(produced) + len(pool), want)}/{want} collected")
+                    # finding videos itself: every full layer is edited right away so clips arrive early.
+                    # videos you pasted are all watched first, so the best clips across them win.
+                    while not sources and len(pool) >= LAYER and len(produced) < want:
+                        edit_layer()
+                    start_next(ex)
 
         while pool and len(produced) < want:
             edit_layer()
@@ -214,6 +261,8 @@ class Pipeline:
         taken = {int(m.group(1)) for f in out_dir.glob("clip_*.json") if (m := re.match(r"clip_(\d+)", f.name))}
         safe = self.cfg["editing"].get("censor_profanity", True)
         plans = []
+        director = BOARD.work("director", f"Choosing the edit for {len(clips)} clip(s)")
+        director.__enter__()
         for clip in clips:  # decide names and edits in order ...
             title, hook = (censor(clip.title), censor(clip.hook)) if safe else (clip.title, clip.hook)
             num = next(n for n in range(1, 1000) if n not in taken)  # never overwrite an earlier clip
@@ -225,12 +274,15 @@ class Pipeline:
                                            (clip.signal_scores.get("energy") or 50) / 100)
                 preset = tune(get_preset(chosen), clip.category)  # calm captions for heartfelt moments
             plans.append((clip, title, hook, f"clip_{num:02d}_{slug(title, 30)}", preset, why))
+        director.__exit__(None, None, None)
         done = [0]
         lock = threading.Lock()
 
         def work(plan) -> dict | None:  # ... then edit, review and fix several clips at the same time
             clip, title, hook, name, preset, why = plan
             self.rep.info("editing", f"Editing: {title} ({preset.name} edit: {why})")
+            slot = BOARD.work("editor", f"Editing: {title}")
+            slot.__enter__()
             highlights = []
             if energy is not None:
                 s, e = int(clip.start), int(clip.end)
@@ -252,6 +304,8 @@ class Pipeline:
             except Exception as exc:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")
                 return None
+            finally:
+                slot.__exit__(None, None, None)
             self.brain.record_made(_vid(result), clip.start, clip.end, clip.category,
                                    meta.get("channel") or "", name)
             info.update(level=preset.name, style_reason=why, run=run_id, layer=layer)

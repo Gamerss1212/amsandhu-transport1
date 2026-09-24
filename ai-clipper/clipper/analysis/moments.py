@@ -15,6 +15,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..agents import BOARD
 from ..llm import Claude, image_block
 from ..media import extract_frame, fmt_ts
 from ..trends.analyzer import trend_fit
@@ -397,6 +398,11 @@ def local_review(clips: list[Clip], meta: dict, transcript: dict, signals: dict,
                  weights: dict) -> None:
     """Scores, titles and captions clips with the built-in judge (sets ai_score / fatal_flaws)."""
     segs = transcript["segments"]
+    with BOARD.work("hook", f"Writing hooks, captions and hashtags for {len(clips)} moments"):
+        _local_review(clips, meta, transcript, signals, profile, weights, segs)
+
+
+def _local_review(clips, meta, transcript, signals, profile, weights, segs) -> None:
     for c in clips:
         r = local_judge.review("", c.start, c.end, segs, signals, profile)
         text = r["text"]

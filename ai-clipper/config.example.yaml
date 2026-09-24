@@ -9,6 +9,9 @@ trends:
   fetch_per_platform: 600
   # Only videos from the last N days count toward the analysis.
   lookback_days: 30
+  reuse_hours: 6                 # a trend study this fresh is reused instead of redone on every click
+  background_refresh: true       # the trend scouts re-study trends in the background while the app is open
+  refresh_hours: 4
   # Top fraction (by virality score) labelled "viral"; bottom fraction labelled "flop".
   viral_top_fraction: 0.2
   flop_bottom_fraction: 0.4
@@ -68,6 +71,7 @@ analysis:
   cookies_from_browser: null
   cookies_file: null
   whisper_model: small           # tiny/base/small/medium/large-v3 (bigger = more accurate, slower)
+  parallel_videos: auto          # videos watched at the same time (auto: by CPU cores; 1-3)
   whisper_device: auto           # auto/cpu/cuda
   long_video_hours: 0.33         # videos longer than this (20 min) are listened to in high-speed batched mode
   long_video_model: base         # lighter speech model used past 6 hours (when the video has no captions)
@@ -96,6 +100,7 @@ analysis:
 # ---------------------------------------------------------------- Step 3
 editing:
   default_level: auto            # auto = the app picks the edit each clip needs (or simple | normal | hard | professional | extreme)
+  parallel_renders: auto         # clips edited at the same time (auto: ~1 per 4 CPU cores, max 3)
   clips_per_run: 5               # how many finished clips you want per click (they can come from different videos)
   width: 1080
   height: 1920
@@ -119,3 +124,9 @@ paths:
   work_dir: data/work
   output_dir: output
   db: data/clipper.db
+
+posting:                         # TikTok / Instagram (connect accounts in the app under Posting)
+  auto_schedule: false           # schedule every new clip automatically at the best time
+  platforms: [tiktok, instagram]
+  max_per_day: 3                 # posts per platform per day at most
+  gap_hours: 3                   # at least this long between two posts on one platform

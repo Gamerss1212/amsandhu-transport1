@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from ..agents import BOARD
 from ..config import Config
 from ..events import Reporter
 from ..llm import Claude
@@ -20,9 +21,11 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     a = cfg["analysis"]
     vid = cand["video_id"]
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
-    video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
-                           lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
-                           log=lambda m: rep.info("analysis", m))  # any length: no limit on videos you choose
+    name = cand.get("title") or cand.get("input") or vid
+    with BOARD.work("download", f"Downloading {name}"):
+        video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
+                               lambda f: rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
+                               log=lambda m: rep.info("analysis", m))  # any length: no limit on videos you choose
     meta = {**info, "title": info.get("title") or cand.get("title", ""),
             "channel": info.get("channel") or cand.get("channel", ""),
             "duration": float(info.get("duration") or cand.get("duration") or 0)}
@@ -30,11 +33,12 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     rep.progress("analysis", 0.2, "Transcribing the whole video (word by word)...")
     # the built-in judge reads English; Claude (optional) handles any language
     language = None if llm else cfg["discovery"].get("language")
-    transcript = transcribe(video, a["whisper_model"], a["whisper_device"], caption_file(video),
-                            log=lambda m: rep.info("analysis", m), language=language,
-                            long_hours=float(a.get("long_video_hours", 0.33)),
-                            long_model=a.get("long_video_model", "base"),
-                            progress=lambda f, m: rep.progress("analysis", 0.2 + 0.15 * f, m))
+    with BOARD.work("listen", f"Listening to {name}"):
+        transcript = transcribe(video, a["whisper_model"], a["whisper_device"], caption_file(video),
+                                log=lambda m: rep.info("analysis", m), language=language,
+                                long_hours=float(a.get("long_video_hours", 0.33)),
+                                long_model=a.get("long_video_model", "base"),
+                                progress=lambda f, m: rep.progress("analysis", 0.2 + 0.15 * f, m))
     rep.info("analysis", f"Transcript: {len(transcript['words'])} words via {transcript['source']}")
 
     comments = []
@@ -47,15 +51,17 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         except Exception as exc:
             rep.info("analysis", f"Comments unavailable: {exc}")
 
-    wav = audio_for_analysis(video, video.parent / "audio16k.wav")
-    signals = compute_signals(info, transcript, wav, comments, meta["duration"])
+    with BOARD.work("audio", f"Laughter, energy and reactions in {name}"):
+        wav = audio_for_analysis(video, video.parent / "audio16k.wav")
+        signals = compute_signals(info, transcript, wav, comments, meta["duration"])
     found = [k for k, v in signals["raw"].items() if v is not None and k != "pace"]
     rep.info("analysis", f"Audience/audio signals available: {', '.join(found) or 'none'}")
 
-    approved, judged = select_moments(
-        meta, transcript, signals, profile, cfg, video, llm,
-        progress=lambda f, m="": rep.progress("analysis", 0.4 + 0.58 * f, m),
-        log=lambda m: rep.info("analysis", m))
+    with BOARD.work("judge", f"Scoring every moment of {name}"):
+        approved, judged = select_moments(
+            meta, transcript, signals, profile, cfg, video, llm,
+            progress=lambda f, m="": rep.progress("analysis", 0.4 + 0.58 * f, m),
+            log=lambda m: rep.info("analysis", m))
     (video.parent / "analysis.json").write_text(json.dumps(
         {"meta": {k: meta[k] for k in ("id", "title", "channel", "duration") if k in meta},
          "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2), encoding="utf-8")

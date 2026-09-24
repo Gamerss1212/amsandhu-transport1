@@ -32,6 +32,15 @@ YOUR CLIPS
   .srt subtitles).
 - Don't like one? Press the X on it. It's deleted, and the app learns to find different clips.
 
+POST TO TIKTOK / INSTAGRAM (optional)
+- Press Connect in the Posting panel and paste an access token (from your own developer app:
+  developers.tiktok.com with video.upload / video.publish, or developers.facebook.com with
+  Instagram Login + instagram_business_content_publish for a Business/Creator account).
+- Press Post on a clip -> "Best time (AI picks)", or tick "Schedule every new clip automatically".
+- Keep AI Clipper open: it posts when the time comes and learns the best hours from your results.
+- TikTok "inbox" mode sends the video to your TikTok inbox to post from the app (works right away);
+  "direct" posting needs a TikTok-approved app (until then TikTok only allows private posts).
+
 IF YOUTUBE SAYS "CONFIRM YOU'RE NOT A BOT"
 YouTube sometimes stops downloads from a connection until it sees you're signed in. Fix it once:
 - Easiest: open Firefox, sign in at youtube.com, then press the button in AI Clipper again.
