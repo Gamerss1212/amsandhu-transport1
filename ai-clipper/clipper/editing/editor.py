@@ -82,6 +82,8 @@ def detect_borders(source: Path, start: float, duration: float) -> str | None:
 
 def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, float]:
     ranges = keep_ranges(job.words, job.start, job.end, preset.max_pause, preset.remove_fillers)
+    if output_duration(ranges) < min(job.end - job.start, max(5.0, 0.4 * (job.end - job.start))):
+        ranges = [(job.start, job.end)]  # mostly silence / music: jump cuts would leave almost nothing
     seek = max(0.0, job.start - 2.0)
     rel = [(a - seek, b - seek) for a, b in ranges]
     parts, labels = [], []

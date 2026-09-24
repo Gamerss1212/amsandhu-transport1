@@ -153,3 +153,20 @@ def test_long_hooks_are_shortened_and_smaller():
     long = hook_fit("This is the longest hook anyone has ever written for a short video clip and it keeps going", 74)
     assert long.startswith("{\\fs55}") and long.endswith("SHORT...") and len(long.split()) == 12
     assert hook_fit("one two three four five six seven eight nine ten eleven the twelve", 74).endswith("ELEVEN...")
+
+
+def test_mostly_silent_clip_is_not_cut_to_nothing(cfg, tmp_path):
+    import subprocess
+
+    from clipper.editing import RenderJob, get_preset
+    from clipper.editing.editor import cut_pass
+    from clipper.media import ffmpeg_exe
+
+    src = tmp_path / "quiet.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=12",
+                    "-f", "lavfi", "-i", "sine=d=12", "-shortest", "-c:v", "libx264", "-preset", "ultrafast", str(src)],
+                   check=True)
+    job = RenderJob(source=src, start=0, end=12, words=[{"w": "Wow.", "s": 5.0, "e": 5.6}], hook="",
+                    emphasis=[], out_dir=tmp_path, name="q")
+    _, ranges, duration = cut_pass(job, get_preset("extreme"), tmp_path)
+    assert duration > 10 and ranges == [(0, 12)]
