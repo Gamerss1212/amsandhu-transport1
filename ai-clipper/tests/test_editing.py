@@ -60,8 +60,13 @@ def test_track_planning():
     assert track.keyframes[0][1] == pytest.approx(0.3) and track.keyframes[-1][1] == pytest.approx(0.7)
     expr = x_expression(track, "1920", "608")
     assert expr.startswith("if(lt(t,") and "608" in expr
-    wide = plan_track(times, [[(0.2, 0.1), (0.8, 0.1)]] * 30, [], "face")
-    assert wide.layout == "fit"
+    wide = plan_track(times, [[(0.8, 0.1, 0.4), (0.2, 0.1, 0.3)]] * 30, [], "face")
+    assert wide.layout == "stack"  # podcast two-shot: one speaker per half, left one on top
+    assert wide.speakers == [pytest.approx((0.2, 0.3, 0.1)), pytest.approx((0.8, 0.4, 0.1))]
+    from clipper.editing.reframe import speaker_box
+    w, h, x, y = speaker_box(wide.speakers[0], 1920, 1080, 1080 / 960)
+    assert abs(w / h - 1.125) < 0.02 and 0 <= x and x + w <= 1920 and 0 <= y and y + h <= 1080
+    assert x < 0.2 * 1920 < x + w
     assert plan_track(times, faces, [], "center").keyframes == [(0.0, 0.5)]
 
 
@@ -170,3 +175,14 @@ def test_mostly_silent_clip_is_not_cut_to_nothing(cfg, tmp_path):
                     emphasis=[], out_dir=tmp_path, name="q")
     _, ranges, duration = cut_pass(job, get_preset("extreme"), tmp_path)
     assert duration > 10 and ranges == [(0, 12)]
+
+
+def test_two_shots_inside_a_clip_switch_to_the_stacked_view():
+    times = [i / 3 for i in range(60)]  # 20 s: single shot, two-shot from 6.7 s to 13.3 s, single again
+    single, two = [(0.5, 0.2, 0.4)], [(0.2, 0.1, 0.35), (0.8, 0.1, 0.4)]
+    faces = [single] * 20 + [two] * 20 + [single] * 20
+    track = plan_track(times, faces, cuts=[6.6, 13.4], mode="face_smooth")
+    assert track.layout == "crop" and len(track.stack_windows) == 1
+    a, b = track.stack_windows[0]
+    assert a == pytest.approx(6.6) and b == pytest.approx(13.4)  # switches exactly on the scene cuts
+    assert track.speakers[0][0] < track.speakers[1][0]

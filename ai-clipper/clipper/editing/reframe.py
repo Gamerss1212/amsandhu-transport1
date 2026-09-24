@@ -3,7 +3,9 @@
 Samples the clip a few times per second, finds faces (OpenCV YuNet), detects scene
 cuts, and produces a smooth horizontal camera path plus a layout decision:
   * "crop" - a 9:16 window that follows the main face
-  * "fit"  - two people far apart / wide shot: full frame over a blurred fill
+  * "stack" - two people far apart (podcast two-shot): each speaker gets half the screen,
+              one above the other, like the big podcast clip channels
+  * "fit"  - a wide shot with no usable faces: full frame over a blurred fill
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import os
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")  # hide OpenCV's harmless backend warnings in the console
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -22,8 +24,12 @@ from ..config import ROOT
 
 @dataclass
 class Track:
-    layout: str                          # "crop" | "fit"
+    layout: str                          # "crop" | "stack" | "fit"
     keyframes: list[tuple[float, float]]  # (time s, face centre as fraction of width)
+    # "stack": the two speakers as (centre x, centre y, face width), fractions of the frame, left first
+    speakers: list[tuple[float, float, float]] = field(default_factory=list)
+    # "crop" with two-shots inside it: the stacked two-speaker view is shown during these (start, end)
+    stack_windows: list[tuple[float, float]] = field(default_factory=list)
 
 
 MODEL_URLS = (
@@ -72,8 +78,8 @@ def _make_detector(width: int, height: int):
     return lambda frame: []
 
 
-def analyze_faces(video: str, sample_fps: float = 3.0) -> tuple[list[float], list[list[tuple[float, float]]], list[float]]:
-    """Returns (sample times, faces per sample as (cx_frac, width_frac), scene-cut times)."""
+def analyze_faces(video: str, sample_fps: float = 3.0) -> tuple[list[float], list[list[tuple]], list[float]]:
+    """Returns (sample times, faces per sample as (cx_frac, width_frac, cy_frac), scene-cut times)."""
     import cv2
 
     cap = cv2.VideoCapture(video)
@@ -94,7 +100,7 @@ def analyze_faces(video: str, sample_fps: float = 3.0) -> tuple[list[float], lis
             if not ok:
                 break
             small = cv2.resize(frame, (sw, sh))
-            faces.append([((x + fw / 2) / sw, fw / sw) for x, y, fw, fh in detect(small)])
+            faces.append([((x + fw / 2) / sw, fw / sw, (y + fh / 2) / sh) for x, y, fw, fh in detect(small)])
             t = idx / fps
             times.append(t)
             hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
@@ -113,21 +119,61 @@ def plan_track(times: list[float], faces: list[list[tuple[float, float]]], cuts:
     if mode == "center" or not times:
         return Track("crop", [(0.0, 0.5)])
 
-    wide = 0
-    raw = []
+    flags, pairs, raw = [], [], []
     last = 0.5
     for fs in faces:
+        is_wide = False
         if len(fs) >= 2:
-            fs_sorted = sorted(fs, key=lambda f: -f[1])
-            a, b = fs_sorted[0], fs_sorted[1]
+            a, b = sorted(fs, key=lambda f: -f[1])[:2]
             if b[1] >= 0.5 * a[1] and abs(a[0] - b[0]) > 0.4:
-                wide += 1
-        if fs:
+                is_wide = True
+                pairs.append(sorted((a, b)))  # left speaker first
+        flags.append(is_wide)
+        if fs and not is_wide:  # the single-speaker camera only follows single shots
             last = max(fs, key=lambda f: f[1])[0]
         raw.append(last)
-    if wide > 0.55 * len(faces):
+    if len(pairs) >= 3:
+        # two people who sit still: one steady crop per speaker (median = robust to detector misses)
+        med = lambda k, j: float(np.median([p[k][j] if len(p[k]) > j else 0.45 for p in pairs]))
+        speakers = [(med(k, 0), med(k, 2), med(k, 1)) for k in (0, 1)]
+        if sum(flags) > 0.85 * len(flags):
+            return Track("stack", [(0.0, 0.5)], speakers)
+        windows = _wide_windows(times, flags, cuts)
+        if sum(b - a for a, b in windows) >= 1.5:
+            track = _follow(times, raw, cuts, mode)
+            track.speakers, track.stack_windows = speakers, windows
+            return track
+    if sum(flags) > 0.55 * len(flags):
         return Track("fit", [(0.0, 0.5)])
+    return _follow(times, raw, cuts, mode)
 
+
+def _wide_windows(times: list[float], flags: list[bool], cuts: list[float]) -> list[tuple[float, float]]:
+    """Stretches of two-shots, snapped to the scene cuts around them (so layouts switch on a cut)."""
+    half = (times[1] - times[0]) / 2 if len(times) > 1 else 0.2
+    runs, start = [], None
+    for t, f in zip(times + [times[-1] + 1], flags + [False]):
+        if f and start is None:
+            start = t
+        elif not f and start is not None:
+            runs.append([start - half, prev + half])
+            start = None
+        prev = t
+
+    def snap(x: float) -> float:
+        near = [c for c in cuts if abs(c - x) <= 0.45]
+        return min(near, key=lambda c: abs(c - x)) if near else x
+    merged: list[list[float]] = []
+    for a, b in runs:
+        a, b = max(0.0, snap(a)), snap(b)
+        if merged and a - merged[-1][1] < 0.7:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    return [(round(a, 3), round(b, 3)) for a, b in merged if b - a >= 1.2]
+
+
+def _follow(times: list[float], raw: list[float], cuts: list[float], mode: str) -> Track:
     # median filter to kill detector jitter
     arr = np.array(raw)
     k = 5
@@ -183,3 +229,16 @@ def x_expression(track: Track, in_w: str, crop_w: str) -> str:
         seg = f"{x0:.4f}+({x1 - x0:.4f})*(t-{t0:.3f})/{dt:.3f}"
         expr = f"if(lt(t,{t1:.3f}),{_px(seg, in_w, crop_w)},{expr})"
     return expr
+
+
+def speaker_box(speaker: tuple[float, float, float], in_w: int, in_h: int, aspect: float) -> tuple[int, int, int, int]:
+    """Crop (w, h, x, y) around one speaker for a half-screen panel of the given aspect (w / h):
+    head and shoulders, face a little above the middle, never outside the frame."""
+    cx, cy, fw = speaker
+    w = max(fw * in_w * 4.2, in_w * 0.3)
+    w = min(w, in_w * 0.62, in_h * aspect)
+    h = w / aspect
+    x = min(max(0.0, cx * in_w - w / 2), in_w - w)
+    y = min(max(0.0, cy * in_h - 0.40 * h), in_h - h)
+    even = lambda v: int(v) // 2 * 2
+    return even(w), even(h), even(x), even(y)

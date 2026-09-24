@@ -22,7 +22,7 @@ from .captions import build_ass, build_srt
 from .fonts import size_scale
 from .safety import censor
 from .levels import Preset
-from .reframe import Track, analyze_faces, plan_track, x_expression
+from .reframe import Track, analyze_faces, plan_track, speaker_box, x_expression
 from .timeline import cut_points, keep_ranges, output_duration, remap, remap_words
 
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
@@ -78,6 +78,19 @@ def detect_borders(source: Path, start: float, duration: float) -> str | None:
     if w - cw < w * 0.04 and h - ch < h * 0.04:
         return None
     return f"crop={cw}:{ch}:{cx}:{cy}"
+
+
+def stack_filters(src: str, out: str, track: Track, in_w: int, in_h: int, W: int, H: int, accent: str) -> str:
+    """Podcast two-shot: left speaker on top, right speaker below, a thin accent line between."""
+    half = H // 2
+    boxes = [speaker_box(sp, in_w, in_h, W / half) for sp in track.speakers]
+    parts = [f"{src}split[spa{out[1:-1]}][spb{out[1:-1]}]"]
+    for lbl, (bw, bh, bx, by) in zip(("spa", "spb"), boxes):
+        parts.append(f"[{lbl}{out[1:-1]}]crop={bw}:{bh}:{bx}:{by},scale={W}:{half}:flags=lanczos,setsar=1"
+                     f"[{lbl}o{out[1:-1]}]")
+    parts.append(f"[spao{out[1:-1]}][spbo{out[1:-1]}]vstack=inputs=2,drawbox=x=0:y={half - 3}:w={W}:h=6:"
+                 f"color={accent.replace('#', '0x')}@0.9:t=fill{out}")
+    return ";".join(parts)
 
 
 def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, float]:
@@ -199,6 +212,7 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
 
     # ---------------------------------------------------------------- video
     g: list[str] = []
+    stack_windows: list[tuple[float, float]] = []
     vertical_source = in_h > in_w
     if broll_i is not None and not vertical_source:
         top_h = H // 2
@@ -217,7 +231,10 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     else:
         track = plan_track(*analyze_faces(str(cut_file)), mode=preset.reframe) \
             if preset.reframe != "center" else Track("crop", [(0.0, 0.5)])
-        if track.layout == "fit":
+        if track.layout == "stack":
+            g.append(stack_filters("[0:v]", "[base]", track, in_w, in_h, W, H, e["accent_color"]))
+            caption_y, layout = H // 2 + 150, "stack"
+        elif track.layout == "fit":
             g.append(f"[0:v]split[bgs][fgs];[bgs]scale={W}:{H}:force_original_aspect_ratio=increase,"
                      f"crop={W}:{H},boxblur=24:3,eq=brightness=-0.10:saturation=1.2[bg];"
                      f"[fgs]scale={W}:-2:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2-120,setsar=1[base]")
@@ -225,18 +242,30 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
         else:
             crop_w = min(in_w, int(round(in_h * W / H / 2)) * 2)
             x = x_expression(track, str(in_w), str(crop_w))
-            g.append(f"[0:v]crop=w={crop_w}:h={in_h}:x='{x}':y=0,scale={W}:{H}:flags=lanczos,setsar=1[base]")
-            caption_y, layout = 1380, "crop"
+            src = "[0:v]"
+            if track.stack_windows:  # shots with both speakers switch to the stacked view
+                g.append("[0:v]split[cmain][cstk]")
+                g.append(stack_filters("[cstk]", "[stk]", track, in_w, in_h, W, H, e["accent_color"]))
+                stack_windows = track.stack_windows
+                src = "[cmain]"
+            g.append(f"{src}crop=w={crop_w}:h={in_h}:x='{x}':y=0,scale={W}:{H}:flags=lanczos,setsar=1[base]")
+            caption_y, layout = 1380, "crop+stack" if track.stack_windows else "crop"
 
     chain = "[base]"
     emphasis = {_norm(w) for phrase in job.emphasis for w in phrase.split()}
-    zooms = zoom_events(words, emphasis, cuts, preset, duration)
-    if zooms or preset.slow_push:
+    zooms = zoom_events(words, emphasis, cuts, preset, duration) if layout != "stack" else []
+    if stack_windows:  # punch-ins belong to the single-speaker shots, never to the stacked view
+        zooms = [z for z in zooms if not any(a - 0.3 < z[0] < b for a, b in stack_windows)]
+    if zooms or (preset.slow_push and layout != "stack"):
         sx = shake_expr(zooms, fps, 0) if preset.shake else "0"
         sy = shake_expr(zooms, fps, 1) if preset.shake else "0"
         g.append(f"{chain}zoompan=z='{zoom_expr(zooms, preset.slow_push, duration, fps)}':"
                  f"x='iw/2-(iw/zoom/2)+({sx})':y='ih/2-(ih/zoom/2)+({sy})':d=1:s={W}x{H}:fps={fps}[zoomed]")
         chain = "[zoomed]"
+    if stack_windows:
+        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in stack_windows)
+        g.append(f"{chain}[stk]overlay=0:0:enable='{on}'[mixed]")
+        chain = "[mixed]"
     if preset.color_grade:
         g.append(f"{chain}eq=contrast=1.07:saturation=1.18:brightness=0.012,"
                  f"unsharp=5:5:0.55:5:5:0.0[graded]")
