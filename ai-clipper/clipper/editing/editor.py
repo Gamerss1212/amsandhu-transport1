@@ -117,6 +117,15 @@ def face_safe_caption_y(faces, in_w: int, in_h: int, H: int, zoom: float = 1.18)
     return int(min(1500, max(1380, bottom * H + 150)))
 
 
+def fit_filters(src: str, out: str, W: int, H: int, pre: str = "") -> str:
+    """The whole frame, sharp, over a blurred and darkened fill of itself (wide shots, b-roll, screens)."""
+    tag = out[1:-1]
+    return (f"{src}{pre.lstrip(',') + ',' if pre else ''}split[bg{tag}][fg{tag}];"
+            f"[bg{tag}]scale={W // 4}:{H // 4}:force_original_aspect_ratio=increase,crop={W // 4}:{H // 4},"
+            f"boxblur=6:2,scale={W}:{H},eq=brightness=-0.10:saturation=1.2[b{tag}];"
+            f"[fg{tag}]scale={W}:-2:flags=lanczos[f{tag}];[b{tag}][f{tag}]overlay=(W-w)/2:(H-h)/2-120,setsar=1{out}")
+
+
 def stack_filters(src: str, out: str, track: Track, in_w: int, in_h: int, W: int, H: int, accent: str,
                   pre: str = "") -> str:
     """Podcast two-shot: left speaker on top, right speaker below, a thin accent line between."""
@@ -254,7 +263,9 @@ def _render_pass(job: RenderJob, preset: Preset, cfg, encode: list[str]) -> dict
 
     # ---------------------------------------------------------------- video
     g: list[str] = []
-    stack_windows: list[tuple[float, float]] = []
+    stack_windows: list[tuple[float, float]] = []  # times the single-speaker crop is covered by another view
+    track_stack_windows: list[tuple[float, float]] = []
+    overlays: list[tuple[str, list[tuple[float, float]]]] = []
     # old / low-res footage is blown up ~3x: clean the noise first, then restore edge detail
     low_res = min(in_w, in_h) < 700
     # detail is restored at the source resolution, before the upscale: same look, a fraction of the pixels
@@ -283,22 +294,33 @@ def _render_pass(job: RenderJob, preset: Preset, cfg, encode: list[str]) -> dict
             g.append(stack_filters("[0:v]", "[base]", track, in_w, in_h, W, H, e["accent_color"], clean))
             caption_y, layout = H // 2 + 150, "stack"
         elif track.layout == "fit":
-            g.append(f"[0:v]split[bgs][fgs];[bgs]scale={W}:{H}:force_original_aspect_ratio=increase,"
-                     f"crop={W}:{H},boxblur=24:3,eq=brightness=-0.10:saturation=1.2[bg];"
-                     f"[fgs]scale={W}:-2:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2-120,setsar=1[base]")
+            g.append(fit_filters("[0:v]", "[base]", W, H, clean))
             caption_y, layout = 1420, "fit"
         else:
             crop_w = min(in_w, int(round(in_h * W / H / 2)) * 2)
             x = x_expression(track, str(in_w), str(crop_w))
             src = "[0:v]"
-            if track.stack_windows:  # shots with both speakers switch to the stacked view
-                g.append("[0:v]split[cmain][cstk]")
-                g.append(stack_filters("[cstk]", "[stk]", track, in_w, in_h, W, H, e["accent_color"], clean))
-                stack_windows = track.stack_windows
+            # two-shots switch to the stacked view (framed per shot), shots with nobody in them to the full frame
+            extra = [(f"stk{k}", [w], sp) for k, (w, sp) in
+                     enumerate(zip(track.stack_windows, track.window_speakers or [track.speakers] * 9))]
+            if track.fit_windows:
+                extra.append(("fitv", track.fit_windows, None))
+            if extra:
+                g.append(f"[0:v]split={len(extra) + 1}[cmain]" + "".join(f"[c{lbl}]" for lbl, _, _ in extra))
+                for lbl, wins, sp in extra:
+                    if sp is not None:
+                        g.append(stack_filters(f"[c{lbl}]", f"[{lbl}]", Track("stack", [], sp), in_w, in_h, W, H,
+                                               e["accent_color"], clean))
+                    else:
+                        g.append(fit_filters(f"[c{lbl}]", f"[{lbl}]", W, H, clean))
+                    overlays.append((lbl, wins))
+                stack_windows = track.stack_windows + track.fit_windows
+                track_stack_windows = track.stack_windows
                 src = "[cmain]"
             g.append(f"{src}crop=w={crop_w}:h={in_h}:x='{x}':y=0{clean},scale={W}:{H}:flags=lanczos,setsar=1[base]")
             caption_y = face_safe_caption_y(faces, in_w, in_h, H) if faces else 1380
-            layout = "crop+stack" if track.stack_windows else "crop"
+            layout = "+".join(["crop"] + (["stack"] if track.stack_windows else [])
+                              + (["full-frame"] if track.fit_windows else []))
 
     chain = "[base]"
     emphasis = {_norm(w) for phrase in job.emphasis for w in phrase.split()}
@@ -312,10 +334,10 @@ def _render_pass(job: RenderJob, preset: Preset, cfg, encode: list[str]) -> dict
         g.append(f"{chain}zoompan=z='{zoom_expr(zooms, preset.slow_push, duration, fps)}':"
                  f"x='iw/2-(iw/zoom/2)+({sx})':y='ih/2-(ih/zoom/2)+({sy})':d=1:s={W}x{H}:fps={fps}[zoomed]")
         chain = "[zoomed]"
-    if stack_windows:
-        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in stack_windows)
-        g.append(f"{chain}[stk]overlay=0:0:enable='{on}'[mixed]")
-        chain = "[mixed]"
+    for lbl, wins in overlays:
+        on = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in wins)
+        g.append(f"{chain}[{lbl}]overlay=0:0:enable='{on}'[over{lbl}]")
+        chain = f"[over{lbl}]"
     if preset.color_grade:
         g.append(f"{chain}eq=contrast=1.07:saturation=1.18:brightness=0.012[graded]")
         chain = "[graded]"
@@ -337,10 +359,14 @@ def _render_pass(job: RenderJob, preset: Preset, cfg, encode: list[str]) -> dict
     font_files = [*BUNDLED_FONTS.glob("*.ttf"), *(user_fonts.glob("*.[ot]tf") if user_fonts.exists() else [])]
     for f in font_files:
         shutil.copy(f, fonts_work / f.name)
+    # the hook card sits at the top - unless the clip opens on the stacked two-speaker view, where the
+    # top speaker's face is: then it goes in the gap between the two panels
+    opens_stacked = layout == "stack" or any(a < 3.0 for a, _ in track_stack_windows)
+    hook_y = H // 2 - 230 if opens_stacked else 250
     ass = build_ass(words, preset.captions, preset.caption_words, preset.uppercase, e["font"],
                     e["accent_color"], e["highlight_color"], emphasis, duration,
                     hook=(censor(job.hook) if safe else job.hook) if preset.hook_overlay else None,
-                    caption_y=caption_y,
+                    caption_y=caption_y, hook_y=hook_y,
                     size_scale=size_scale(e["font"], font_files), emphasis_pop=preset.emphasis_pop,
                     mood=preset.mood)
     ass_path = work / "captions.ass"

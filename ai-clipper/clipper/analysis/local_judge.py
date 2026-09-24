@@ -448,6 +448,12 @@ def category(text: str, laughs: float = 0.0, comedy: float = 0.0) -> str:
     return best if best and scores[best] >= 1.5 else "insightful"
 
 
+SPLIT_PHRASES = {("come", "on"), ("you", "know"), ("i", "mean"), ("hold", "on"), ("go", "ahead"), ("oh", "my"),
+                 ("thank", "you"), ("right", "now"), ("of", "course"), ("i", "guess"), ("you", "see"),
+                 ("let's", "go"), ("look", "at"), ("wait", "a"), ("at", "least"), ("so", "much"), ("kind", "of"),
+                 ("sort", "of"), ("a", "lot"), ("no", "way"), ("oh", "no"), ("by", "the"), ("and", "then")}
+
+
 def _pause_trim(seg: dict, words: list[dict], max_words: int = 12) -> str | None:
     """A segment with no full stop may run into the next sentence ("I was ahead of his time come on"):
     end it at the clearest pause in speech instead."""
@@ -470,9 +476,20 @@ def hook_text(segments: list[dict], start: float, end: float, profile: dict | No
         [s for s in segments if s["e"] > start][:1]
     if not options:
         return ""
+    def complete(seg: dict) -> float:  # a finished sentence reads right on screen; a fragment may be cut off
+        return 0.0 if re.search(r"[.!?]['\"]?$", seg["text"].strip()) else 0.15
+
     best = max(options, key=lambda s: _hook_strength(_clean(s["text"]), _words(_clean(s["text"])), lift)
-               - 0.02 * options.index(s))
+               - 0.02 * options.index(s) - complete(s))
     text = _clean((_pause_trim(best, words) if words else None) or best["text"], keep_laughs=False)
+    # speech recognition sometimes splits a phrase across lines ("...his time come" / "on it's fun"):
+    # a hook must not end on the first half of the next phrase
+    nxt = next((seg for seg in segments if seg["s"] >= best["e"] - 0.01 and seg is not best), None)
+    tail = text.split()
+    if nxt and len(tail) > 3 and not re.search(r"[.!?,]$", tail[-1]):
+        pair = (re.sub(r"[^\w']", "", tail[-1].lower()), re.sub(r"[^\w']", "", (nxt["text"].split() or [""])[0].lower()))
+        if pair in SPLIT_PHRASES:
+            text = " ".join(tail[:-1]) + "..."
     text = re.sub(r"^((and|but|so|um|uh|like|yeah|okay|well|oh)[,.]?\s+)+", "", text, flags=re.I)
     words = text.split()
     # a clause that can stand alone reads better on screen: "I was 14 years old and I would say..." ->

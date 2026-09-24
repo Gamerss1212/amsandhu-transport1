@@ -31,6 +31,10 @@ class Track:
     speakers: list[tuple[float, float, float]] = field(default_factory=list)
     # "crop" with two-shots inside it: the stacked two-speaker view is shown during these (start, end)
     stack_windows: list[tuple[float, float]] = field(default_factory=list)
+    # shots with nobody in them (wide shots, b-roll, screens): the whole frame over a blurred fill
+    fit_windows: list[tuple[float, float]] = field(default_factory=list)
+    # the two speakers' positions in each stack window (camera angles differ from shot to shot)
+    window_speakers: list[list[tuple[float, float, float]]] = field(default_factory=list)
 
 
 MODEL_URLS = (
@@ -141,23 +145,53 @@ def plan_track(times: list[float], faces: list[list[tuple[float, float]]], cuts:
         if fs and not is_wide:  # the single-speaker camera only follows single shots
             last = max(fs, key=lambda f: f[1])[0]
         raw.append(last)
+    empty = [not fs for fs in faces]
+    if len(faces) >= 3 and sum(empty) > 0.9 * len(faces):
+        return Track("fit", [(0.0, 0.5)])  # nobody on screen (screen recording, scenery): never blind-crop
+    fit_windows = _wide_windows(times, empty, cuts, min_len=1.5)
+    track = _plan_people(times, faces, flags, pairs, raw, cuts, mode)
+    if track.layout == "crop":
+        busy = track.stack_windows
+        track.fit_windows = [w for w in fit_windows if not any(a < w[1] and w[0] < b for a, b in busy)]
+    return track
+
+
+def _plan_people(times, faces, flags, pairs, raw, cuts, mode) -> Track:
     if len(pairs) >= 3:
         # two people who sit still: one steady crop per speaker (median = robust to detector misses)
-        med = lambda k, j: float(np.median([p[k][j] if len(p[k]) > j else 0.45 for p in pairs]))
-        speakers = [(med(k, 0), med(k, 2), med(k, 1)) for k in (0, 1)]
+        speakers = _speakers(pairs)
         if sum(flags) > 0.85 * len(flags):
             return Track("stack", [(0.0, 0.5)], speakers)
-        windows = _wide_windows(times, flags, cuts)
+        windows = sorted(sorted(_wide_windows(times, flags, cuts), key=lambda w: w[0] - w[1])[:4])
         if sum(b - a for a, b in windows) >= 1.5:
             track = _follow(times, raw, cuts, mode)
             track.speakers, track.stack_windows = speakers, windows
+            # each two-shot gets the speaker positions measured in that shot
+            timed = [(t, sorted(fs_pair)) for t, fs_pair in _timed_pairs(times, faces)]
+            for a, b in windows:
+                inside = [p for t, p in timed if a <= t <= b]
+                track.window_speakers.append(_speakers(inside) if len(inside) >= 2 else speakers)
             return track
     if sum(flags) > 0.55 * len(flags):
         return Track("fit", [(0.0, 0.5)])
     return _follow(times, raw, cuts, mode)
 
 
-def _wide_windows(times: list[float], flags: list[bool], cuts: list[float]) -> list[tuple[float, float]]:
+def _speakers(pairs: list) -> list[tuple[float, float, float]]:
+    med = lambda k, j: float(np.median([p[k][j] if len(p[k]) > j else 0.45 for p in pairs]))
+    return [(med(k, 0), med(k, 2), med(k, 1)) for k in (0, 1)]
+
+
+def _timed_pairs(times: list[float], faces: list[list[tuple]]):
+    for t, fs in zip(times, faces):
+        if len(fs) >= 2:
+            a, b = sorted(fs, key=lambda f: -f[1])[:2]
+            if b[1] >= 0.5 * a[1] and abs(a[0] - b[0]) > 0.4:
+                yield t, (a, b)
+
+
+def _wide_windows(times: list[float], flags: list[bool], cuts: list[float],
+                  min_len: float = 1.2) -> list[tuple[float, float]]:
     """Stretches of two-shots, snapped to the scene cuts around them (so layouts switch on a cut)."""
     half = (times[1] - times[0]) / 2 if len(times) > 1 else 0.2
     runs, start = [], None
@@ -179,7 +213,7 @@ def _wide_windows(times: list[float], flags: list[bool], cuts: list[float]) -> l
             merged[-1][1] = b
         else:
             merged.append([a, b])
-    return [(round(a, 3), round(b, 3)) for a, b in merged if b - a >= 1.2]
+    return [(round(a, 3), round(b, 3)) for a, b in merged if b - a >= min_len]
 
 
 def _follow(times: list[float], raw: list[float], cuts: list[float], mode: str) -> Track:

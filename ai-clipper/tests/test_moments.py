@@ -269,3 +269,11 @@ def test_long_videos_can_supply_many_clips():
     assert per_video_cap(cfg, {"words": [{"e": 1800}]}) == 6
     assert per_video_cap(cfg, {"words": [{"e": 10 * 3600}]}) == 60
     assert per_video_cap(cfg, {"words": [{"e": 200 * 3600}]}) == 100
+
+
+def test_hook_never_ends_on_half_of_a_split_phrase():
+    from clipper.analysis.local_judge import hook_text
+
+    segs = [{"s": 0.0, "e": 2.9, "text": "I was ahead of his time come"},
+            {"s": 5.4, "e": 9.0, "text": "on it's fun doing jokes"}]
+    assert hook_text(segs, 0, 40, None) == "I was ahead of his time..."

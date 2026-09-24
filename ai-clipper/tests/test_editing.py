@@ -284,3 +284,11 @@ def test_captions_move_below_a_low_face():
 
     assert face_safe_caption_y(([0], [[(0.5, 0.1, 0.35)]] * 5, []), 1280, 720, 1920) == 1380
     assert face_safe_caption_y(([0], [[(0.5, 0.25, 0.6)]] * 5, []), 1280, 720, 1920) == 1500
+
+
+def test_shots_with_nobody_show_the_full_frame():
+    times = [i / 3 for i in range(45)]  # 15 s: speaker, then 5 s of b-roll with no faces, then speaker
+    face = [(0.5, 0.2, 0.4)]
+    track = plan_track(times, [face] * 15 + [[]] * 15 + [face] * 15, cuts=[4.9, 10.1], mode="face_smooth")
+    assert track.layout == "crop" and track.fit_windows == [(4.9, 10.1)]
+    assert plan_track(times, [[]] * 45, cuts=[], mode="face").layout == "fit"  # screen recording: never blind-crop

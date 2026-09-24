@@ -85,6 +85,7 @@ def hook_fit(hook: str, size: int, max_words: int = 12) -> str:
 def build_ass(words: list[dict], style: str, per_group: int, uppercase: bool, font: str,
               accent: str, highlight: str, emphasis: set[str], duration: float,
               hook: str | None = None, caption_y: int = 1380, hook_seconds: float | None = None,
+              hook_y: int = 250,
               size_scale: float = 1.0, emphasis_pop: bool = False, mood: str = "hype") -> str:
     """style: 'basic' | 'pop' | 'karaoke'. size_scale evens out differences between fonts.
     mood 'calm' (heartfelt moments): smaller sentence-case text that fades in, a soft warm highlight
@@ -108,7 +109,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,{outline},3,2,70,70,{margin_v},1
-Style: Hook,{font},{hook_size},&H00000000,&H00000000,{ass_color(accent)},{ass_color(accent)},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,250,1
+Style: Hook,{font},{hook_size},&H00000000,&H00000000,{ass_color(accent)},{ass_color(accent)},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,{hook_y},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
