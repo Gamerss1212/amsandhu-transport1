@@ -27,7 +27,7 @@ from clipper.analysis import analyze_video, clip_words  # noqa: E402
 from clipper.analysis.transcribe import group_segments  # noqa: E402
 from clipper.config import load_config  # noqa: E402
 from clipper.editing import RenderJob, get_preset, render, write_post_files  # noqa: E402
-from clipper.editing.auto import choose_level  # noqa: E402
+from clipper.editing.auto import choose_level, tune  # noqa: E402
 from clipper.editing.levels import LEVEL_NAMES  # noqa: E402
 from clipper.editing.safety import censor  # noqa: E402
 from clipper.events import Reporter  # noqa: E402
@@ -232,7 +232,7 @@ def main() -> int:
                 comedy, energy = 0.0, 0.5
                 expect_audio = not case.get("silent") and case.get("volume", 1) > 0.05
             level = choose_level(category, end - start, comedy, energy)[0] if level_mode == "auto" else level_mode
-            preset = get_preset(level)
+            preset = tune(get_preset(level), category) if level_mode == "auto" else get_preset(level)
             if args.fast:
                 preset = dataclasses.replace(preset, x264_preset="ultrafast")
             row["level"] = level

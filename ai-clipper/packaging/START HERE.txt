@@ -13,17 +13,24 @@ SETUP (once)
 MAKE CLIPS
 4. Choose where the videos come from:
      - "Find videos for me": it studies 350+ short videos to learn what's going viral right now,
-       finds popular long podcasts/interviews from the last 2 weeks, and watches them in full.
+       finds popular podcasts/interviews (10 minutes to 200 hours long) from the last 2 weeks,
+       and watches them in full.
      - "Use my videos": paste YouTube links or video file paths, one per line.
+       Any length from 10 minutes up to 200 hours works. Over 3 hours, only the audio is
+       downloaded to find the moments, then just the chosen clips are downloaded in full quality.
        Tip: in File Explorer, Shift + right-click a video -> "Copy as path", then paste.
-5. Choose how many clips you want. They can come from different videos - only the best make it.
-6. Choose an editing style (simple, normal, hard, professional, extreme) and press the big button.
-   The first run takes longer (it downloads the speech-recognition model, ~500 MB, once).
-   A long video takes roughly 10-40 minutes depending on your PC.
+5. Choose how many clips you want (1 to 100). They are made in layers of 5, so the first
+   clips show up early, and they can come from different videos - only the best make it.
+6. Press the big button. The AI picks the edit each clip needs (fast cuts, shake, sound effects
+   for hype moments; calm captions and music for heartfelt ones; a stacked two-speaker view for
+   podcast two-shots). The first run takes longer (it downloads the speech model, ~500 MB, once).
+   A 1-hour video takes roughly 10-40 minutes depending on your PC.
 
 YOUR CLIPS
 - They appear in the app with Play / Download / Copy caption buttons, and are saved in
-  the "output" folder next to AIClipper.exe (video + thumbnail + ready-to-post caption).
+  the "output" folder next to AIClipper.exe (video + thumbnail + ready-to-post caption +
+  .srt subtitles).
+- Don't like one? Press the X on it. It's deleted, and the app learns to find different clips.
 
 IF YOUTUBE SAYS "CONFIRM YOU'RE NOT A BOT"
 YouTube sometimes stops downloads from a connection until it sees you're signed in. Fix it once:
@@ -35,7 +42,8 @@ YouTube sometimes stops downloads from a connection until it sees you're signed 
 OTHER FILES (next to AIClipper.exe)
   config.yaml   settings: channels to watch, search topics, strictness, clip length
   .env          optional extra keys (not needed)
-  assets\       optional music, sound effects, b-roll and fonts for professional/extreme
+  assets\       optional music, sound effects, fonts - and gameplay/b-roll videos in assets\broll
+                to turn on the split-screen layout
 
 CHECK YOUR SETUP
   Open a Command Prompt in this folder and run:  AIClipper.exe doctor
