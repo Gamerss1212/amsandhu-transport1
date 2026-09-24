@@ -53,8 +53,13 @@ def build_srt(words: list[dict], per_group: int = 6) -> str:
         sec, ms = divmod(ms, 1000)
         return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
     words = [w for w in words if not is_filler(w["w"])]
-    blocks = [f"{i}\n{t(g[0]['s'])} --> {t(g[-1]['e'] + 0.1)}\n{' '.join(clean(w['w']) for w in g)}\n"
-              for i, g in enumerate(group_words(words, per_group), 1)]
+    groups = group_words(words, per_group)
+    blocks = []
+    for i, g in enumerate(groups, 1):
+        end = g[-1]["e"] + 0.1
+        if i < len(groups):  # never overlap the next line (players would show two at once)
+            end = min(end, groups[i][0]["s"])
+        blocks.append(f"{i}\n{t(g[0]['s'])} --> {t(max(end, g[0]['s'] + 0.05))}\n{' '.join(clean(w['w']) for w in g)}\n")
     return "\n".join(blocks)
 
 

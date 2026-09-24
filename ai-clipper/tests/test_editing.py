@@ -116,3 +116,31 @@ def test_srt_and_hook_time():
     srt = build_srt(WORDS, 3)
     assert srt.startswith("1\n00:00:0") and " --> " in srt
     assert hook_time("short hook") == 2.2 and hook_time("word " * 40) == 4.0
+
+
+def test_black_bars_are_detected(tmp_path):
+    import subprocess
+
+    from clipper.editing.editor import detect_borders
+    from clipper.media import ffmpeg_exe
+
+    boxed = tmp_path / "boxed.mp4"  # a 4:3 show inside a 16:9 file, like old TV uploads
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=480x360:r=30:d=3",
+                    "-vf", "pad=640:360:80:0:black", "-c:v", "libx264", "-preset", "ultrafast", str(boxed)], check=True)
+    crop = detect_borders(boxed, 0, 3)
+    w, h, x, _ = map(int, crop.split("=")[1].split(":"))
+    assert 470 <= w <= 484 and h >= 356 and 76 <= x <= 84
+    clean = tmp_path / "clean.mp4"
+    subprocess.run([ffmpeg_exe(), "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=3",
+                    "-c:v", "libx264", "-preset", "ultrafast", str(clean)], check=True)
+    assert detect_borders(clean, 0, 3) is None
+
+
+def test_srt_lines_never_overlap():
+    from clipper.editing.captions import build_srt
+
+    words = [{"w": f"w{i}", "s": i * 0.3, "e": i * 0.3 + 0.28} for i in range(30)]
+    import re as _re
+    times = _re.findall(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> (\d\d):(\d\d):(\d\d),(\d\d\d)", build_srt(words, 3))
+    secs = [(int(a[2]) + int(a[3]) / 1000, int(a[6]) + int(a[7]) / 1000) for a in times]
+    assert all(b1 <= a2 for (_, b1), (a2, _) in zip(secs, secs[1:]))

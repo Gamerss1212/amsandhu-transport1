@@ -12,10 +12,11 @@ import os
 import random
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..media import extract_frame, probe, run_ffmpeg
+from ..media import extract_frame, ffmpeg_exe, probe, run_ffmpeg
 from .builtin_assets import builtin
 from .captions import build_ass, build_srt
 from .fonts import size_scale
@@ -58,6 +59,27 @@ def _norm(w: str) -> str:
     return re.sub(r"[^\w']", "", w.lower())
 
 
+def detect_borders(source: Path, start: float, duration: float) -> str | None:
+    """Black bars baked into the picture (4:3 shows in 16:9 files, letterboxed films) as an
+    ffmpeg crop, so they never end up inside the vertical frame. None when there are none."""
+    info = probe(source)
+    w, h = info["width"], info["height"]
+    if not w or not h:
+        return None
+    err = subprocess.run([ffmpeg_exe(), "-hide_banner", "-nostats", "-ss", f"{max(0.0, start):.2f}", "-i", str(source),
+                          "-t", f"{min(12.0, max(1.0, duration)):.2f}", "-vf", "fps=4,cropdetect=limit=24:round=2:reset=0",
+                          "-an", "-f", "null", "-"], capture_output=True, text=True).stderr
+    found = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", err)
+    if not found:
+        return None
+    cw, ch, cx, cy = map(int, found[-1])  # reset=0: the area that was ever non-black - never cuts picture
+    if cw < w * 0.3 or ch < h * 0.3:  # a dark scene, not bars
+        return None
+    if w - cw < w * 0.04 and h - ch < h * 0.04:
+        return None
+    return f"crop={cw}:{ch}:{cx}:{cy}"
+
+
 def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, float]:
     ranges = keep_ranges(job.words, job.start, job.end, preset.max_pause, preset.remove_fillers)
     seek = max(0.0, job.start - 2.0)
@@ -73,7 +95,8 @@ def cut_pass(job: RenderJob, preset: Preset, work: Path) -> tuple[Path, list, fl
     v_speed = f",setpts=PTS/{speed}" if speed != 1.0 else ""
     a_speed = f",atempo={speed}" if speed != 1.0 else ""
     parts.append(f"{''.join(labels)}concat=n={len(rel)}:v=1:a=1[vc][ac]")
-    parts.append(f"[vc]fps=30{v_speed}[vout]")
+    borders = detect_borders(job.source, job.start, job.end - job.start)
+    parts.append(f"[vc]{borders + ',' if borders else ''}fps=30{v_speed}[vout]")
     parts.append(f"[ac]aresample=48000{a_speed}[aout]")
     out = work / "cut.mkv"
     run_ffmpeg(["-ss", f"{seek:.3f}", "-t", f"{job.end - seek + 1.0:.3f}", "-i", str(job.source),
@@ -156,7 +179,8 @@ def render(job: RenderJob, preset: Preset, cfg) -> dict:
     sfx = _pick(asset("sfx_dir"), AUDIO_EXT, job.name) if preset.sfx else None
     if e.get("builtin_assets", True):  # your own files win; otherwise the built-in ones keep every feature on
         cache = cfg.path("paths.work_dir").parent / "builtin_assets"
-        broll = broll or (builtin("broll", cache) if preset.broll_split else None)
+        # no built-in b-roll: a generated background under a real speaker looks cheap, so the split
+        # screen is used only with your own gameplay / b-roll (assets/broll); otherwise full-screen
         music = music or (builtin("music", cache) if preset.music else None)
         sfx = sfx or (builtin("sfx", cache) if preset.sfx else None)
     idx = 1

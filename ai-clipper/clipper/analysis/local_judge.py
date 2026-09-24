@@ -369,7 +369,21 @@ def category(text: str, laughs: float = 0.0) -> str:
     return max(scores, key=scores.get) if scores else "insightful"
 
 
-def hook_text(segments: list[dict], start: float, end: float, profile: dict | None) -> str:
+def _pause_trim(seg: dict, words: list[dict], max_words: int = 12) -> str | None:
+    """A segment with no full stop may run into the next sentence ("I was ahead of his time come on"):
+    end it at the clearest pause in speech instead."""
+    ws = [w for w in words if seg["s"] - 0.01 <= w["s"] <= seg["e"] + 0.01]
+    if len(ws) < 5 or re.search(r"[.!?]['\"]?$", seg["text"].strip()):
+        return None
+    gaps = [(ws[k + 1]["s"] - ws[k]["e"], k) for k in range(3, min(len(ws) - 1, max_words))]
+    if not gaps:
+        return None
+    gap, k = max(gaps)
+    return " ".join(w["w"] for w in ws[:k + 1]) if gap >= 0.2 else None
+
+
+def hook_text(segments: list[dict], start: float, end: float, profile: dict | None,
+              words: list[dict] | None = None) -> str:
     """The punchiest line near the start of the clip, trimmed to overlay length."""
     lift = {r["feature"]: r["lift"] for r in (profile or {}).get("hook_lift", [])}
     limit = start + 0.6 * (end - start)
@@ -379,7 +393,7 @@ def hook_text(segments: list[dict], start: float, end: float, profile: dict | No
         return ""
     best = max(options, key=lambda s: _hook_strength(_clean(s["text"]), _words(_clean(s["text"])), lift)
                - 0.02 * options.index(s))
-    text = _clean(best["text"], keep_laughs=False)
+    text = _clean((_pause_trim(best, words) if words else None) or best["text"], keep_laughs=False)
     text = re.sub(r"^((and|but|so|um|uh|like|yeah|okay|well|oh)[,.]?\s+)+", "", text, flags=re.I)
     words = text.split()
     # a clause that can stand alone reads better on screen: "I was 14 years old and I would say..." ->

@@ -202,3 +202,15 @@ def test_long_video_reads_captions_first(tmp_path, monkeypatch):
     out = tr.transcribe(video, captions=caps, log=logs.append)
     assert out["source"] == "youtube-captions" and len(out["words"]) == 2
     assert any("20.0 h" in m for m in logs)
+
+
+def test_hook_stops_at_a_pause_when_punctuation_is_missing():
+    from clipper.analysis.local_judge import hook_text
+
+    ws, t = [], 0.0
+    for w, gap in [("I", .05), ("was", .05), ("ahead", .05), ("of", .05), ("his", .05), ("time", .6),
+                   ("come", .05), ("on", .05), ("it's", .05), ("fun", .05), ("doing", .05), ("jokes", .05)]:
+        ws.append({"w": w, "s": t, "e": t + 0.25})
+        t += 0.25 + gap
+    segs = [{"s": 0, "e": ws[-1]["e"], "text": " ".join(w["w"] for w in ws)}]
+    assert hook_text(segs, 0, 20, None, ws) == "I was ahead of his time"

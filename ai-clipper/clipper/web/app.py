@@ -31,7 +31,7 @@ LEVEL_INFO = {
     "professional": ("Polished like a pro editor: music under the voice, whooshes, progress bar.",
                      ["Smooth tracking", "Pattern zooms", "Music", "Whoosh SFX", "Vignette", "Progress bar"]),
     "extreme": ("Everything, plus a split screen with b-roll, flashes and faster pacing.",
-                ["B-roll split", "Camera shake", "Flashes", "Push-in", "Faster pacing"]),
+                ["Gameplay split (your b-roll)", "Camera shake", "Flashes", "Push-in", "Faster pacing"]),
 }
 
 
