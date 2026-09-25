@@ -14,7 +14,7 @@ import re
 import time
 from pathlib import Path
 
-from ..media import audio_for_analysis, media_seconds, pcm_chunks
+from ..media import Cancelled, audio_for_analysis, check_cancel, media_seconds, pcm_chunks
 
 _SENTENCE_END = re.compile(r"[.!?…]['\"]?$")
 
@@ -83,6 +83,7 @@ def _whisper(wav: Path, model_size: str, device: str, language: str | None = Non
             detected = info.language
         base = n * piece
         for seg in segments:
+            check_cancel()
             for wd in seg.words or []:
                 text = wd.word.strip()
                 if text:
@@ -151,7 +152,7 @@ def transcribe(video: Path, model_size: str = "small", device: str = "auto",
             result = _whisper(wav, size, device, language, fast=fast, progress=tick)
             if log:
                 log(f"Watched {seconds / 60:.0f} min of video at {seconds / max(1.0, time.time() - t0):.0f}x speed")
-    except WrongLanguage:
+    except (WrongLanguage, Cancelled):
         raise
     except ImportError:
         if log:

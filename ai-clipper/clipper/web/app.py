@@ -85,17 +85,71 @@ def create_app(cfg: Config) -> FastAPI:
     posting = PostingService(cfg, pipe.db, rep, BOARD)
 
     def trend_scout() -> None:
-        """Keeps the trend study fresh in the background, so a click starts straight at finding videos."""
-        stop.wait(90)  # let the app start up first
+        """Trend scouts, 24/7: keep the trend study fresh so a click starts straight at finding videos."""
+        stop.wait(20)
         while not stop.is_set():
             t = cfg["trends"]
-            if t.get("background_refresh", True) and not pipe.running and not pipe.fresh_trends():
+            fresh = pipe.fresh_trends()
+            if fresh:
+                age = (time.time() - fresh["created_at"]) / 60
+                BOARD.beat("trend", f"Trends fresh ({fresh.get('n_videos', 0)} shorts studied {age:.0f} min ago) - "
+                                    f"re-study in {max(0, float(t.get('reuse_hours', 6)) * 60 - age):.0f} min")
+            elif not t.get("background_refresh", True):
+                BOARD.beat("trend", "", reason="Background refresh is off (trends.background_refresh)")
+            elif pipe.running:
+                BOARD.beat("trend", "The current run is studying trends")
+            else:
                 try:
-                    with BOARD.work("trend", "Refreshing what goes viral right now (background)"):
+                    with BOARD.work("trend", "Studying what goes viral right now (background)"):
                         run_trend_analysis(cfg, pipe.db, rep)
                 except Exception as exc:
-                    rep.info("trends", f"Background trend refresh skipped: {exc}")
-            stop.wait(max(0.5, float(t.get("refresh_hours", 4))) * 3600 / 4)
+                    BOARD.beat("trend", "", reason=f"Trend study failed ({str(exc)[:80]}) - retrying in 10 min")
+                    stop.wait(600)
+                    continue
+            stop.wait(60)
+
+    def video_scout() -> None:
+        """Video scouts, 24/7: keep a queue of the most promising long videos ready for the next click."""
+        stop.wait(45)
+        while not stop.is_set():
+            q = pipe.queue_fresh()
+            if q is not None:
+                BOARD.beat("scout", f"{len(q)} viral candidates queued - next search in "
+                                    f"{max(0, int((pipe.queue_at + pipe.queue_hours * 3600 - time.time()) / 60))} min")
+            elif pipe.running:
+                BOARD.beat("scout", "Searching for the current run")
+            else:
+                try:
+                    pipe.refill_queue()
+                except Exception as exc:
+                    BOARD.beat("scout", "", reason=f"YouTube search failed ({str(exc)[:80]}) - retrying in 10 min")
+                    stop.wait(600)
+                    continue
+            stop.wait(60)
+
+    def supervisor() -> None:
+        """Keeps every agent alive: heartbeats for the agents that wait for work, and restarts any
+        background loop that stopped."""
+        while not stop.is_set():
+            waiting = "Ready for the next video" if not pipe.running else "Ready - takes the next job the moment it comes"
+            for role, duty in (("download", waiting), ("listen", waiting), ("audio", waiting), ("judge", waiting),
+                               ("hook", "Ready to write hooks, captions and hashtags"),
+                               ("director", "Ready to choose each clip's edit"),
+                               ("editor", "Ready to edit - clips come in layers of 5" if pipe.running else "Ready to edit the next clips"),
+                               ("review", "Ready to watch and fix every finished clip")):
+                BOARD.beat(role, duty)
+            b = pipe.brain.summary()
+            BOARD.beat("brain", f"Memory: {b['made']} clips made, {b['removed']} removed - never repeats a moment")
+            for name, (target, thread) in list(loops.items()):
+                if not thread.is_alive() and not stop.is_set():
+                    rep.info("agents", f"{name} stopped - restarting it")
+                    loops[name] = (target, threading.Thread(target=target, daemon=True, name=name))
+                    loops[name][1].start()
+            stop.wait(15)
+
+    loops: dict = {}
+    BOARD.beat("trend", "Starting up - checking how fresh the trend study is")
+    BOARD.beat("scout", "Starting up - first search for viral videos in a moment")
 
     def auto_schedule(ev) -> None:
         p = cfg.get("posting") or {}
@@ -124,9 +178,11 @@ def create_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        for target, name in ((watcher, "upload-watcher"), (trend_scout, "trend-scout"),
-                             (lambda: posting.run_forever(stop), "publisher")):
-            threading.Thread(target=target, daemon=True, name=name).start()
+        for target, name in ((watcher, "upload-watcher"), (trend_scout, "trend-scouts"),
+                             (video_scout, "video-scouts"), (lambda: posting.run_forever(stop), "publisher")):
+            loops[name] = (target, threading.Thread(target=target, daemon=True, name=name))
+            loops[name][1].start()
+        threading.Thread(target=supervisor, daemon=True, name="supervisor").start()
         yield
         stop.set()
 
@@ -238,6 +294,13 @@ def create_app(cfg: Config) -> FastAPI:
             raise HTTPException(404, "Clip not found")
         return {"removed": removed}
 
+    @app.post("/api/stop")
+    def stop_run() -> dict:
+        if not pipe.running:
+            return {"stopped": False}
+        pipe.stop()
+        return {"stopped": True}
+
     @app.get("/api/agents")
     def agents() -> dict:
         return {"size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot()}
@@ -247,6 +310,15 @@ def create_app(cfg: Config) -> FastAPI:
         posts = pipe.db.posts("scheduled_at > ?", (time.time() - 14 * 86400,))
         return {"accounts": posting.accounts.status(), "posts": posts[-100:],
                 "auto_schedule": bool((cfg.get("posting") or {}).get("auto_schedule"))}
+
+    @app.get("/api/posting/besttimes")
+    def posting_besttimes(platform: str = "tiktok") -> dict:
+        if platform not in ("tiktok", "instagram"):
+            raise HTTPException(400, "Unknown platform")
+        model = posting.timing(platform)
+        grid = [[round(model.score(d, h), 3) for h in range(24)] for d in range(7)]
+        nxt = model.best_slots(3, time.time() + 600, [])
+        return {"grid": grid, "learned_from": len(model.results), "next": nxt}
 
     @app.post("/api/posting/connect")
     def posting_connect(req: ConnectRequest) -> dict:

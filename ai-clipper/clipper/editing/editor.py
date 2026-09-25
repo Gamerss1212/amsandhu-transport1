@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..agents import BOARD
-from ..media import extract_frame, ffmpeg_exe, probe, run_ffmpeg
+from ..media import Cancelled, extract_frame, ffmpeg_exe, probe, run_ffmpeg
 from .builtin_assets import builtin
 from .captions import build_ass, build_srt
 from .fonts import size_scale
@@ -533,6 +533,8 @@ def render(job: RenderJob, preset: Preset, cfg, log=None) -> dict:
         encode = encoder_args(p, cfg)
         try:
             info = _render_pass(job, p, cfg, encode)
+        except Cancelled:
+            raise
         except Exception as exc:
             last_exc = exc
             if "nvenc" in " ".join(encode) and not _gpu_failed:

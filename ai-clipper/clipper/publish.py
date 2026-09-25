@@ -386,9 +386,24 @@ class PostingService:
                 self.db.update_post(post["id"], stats_at=now)
                 self.rep.info("posting", f"Could not read results for {post['name']}: {exc}")
 
+    def heartbeat(self) -> None:
+        if not self.board:
+            return
+        accts = self.accounts.status()
+        linked = [p.title() for p, v in accts.items() if v["connected"]]
+        queued = len(self.db.posts("status = 'scheduled'"))
+        posted = self.db.posts("status = 'posted'")
+        if linked:
+            self.board.beat("publish", f"Watching the schedule for {' & '.join(linked)}: {queued} post(s) queued")
+        else:
+            self.board.beat("publish", "", reason="Standing by: connect TikTok or Instagram to start posting")
+        self.board.beat("timing", f"Learning the best posting hours from {len(posted)} post(s)" if posted else
+                        "Using typical peak hours until your first posts have results")
+
     def run_forever(self, stop: threading.Event, every: float = 30.0) -> None:
         while not stop.is_set():
             try:
+                self.heartbeat()
                 self.tick()
             except Exception as exc:  # the scheduler must never die
                 self.rep.error("posting", f"Scheduler error: {exc}")

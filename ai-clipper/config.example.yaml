@@ -51,6 +51,12 @@ discovery:
   watch_channels: []
   #  - UCzQUP1qoWDoEbmsQxvdjxgQ   # example
   search_queries: [podcast full episode, podcast episode interview, comedy podcast full episode]
+  # Famous creators are searched first and ranked higher: their long videos are the most clipped and
+  # most watched. Add or remove names freely.
+  famous_creators: [Theo Von, The Diary Of A CEO, Flagrant, Impaulsive, PBD Podcast, Shawn Ryan Show,
+                    Lex Fridman, Call Her Daddy, Club Shay Shay, Hot Ones, Full Send Podcast, H3 Podcast,
+                    Kai Cenat, IShowSpeed, Adin Ross, Andrew Schulz, Bobbi Althoff, Jubilee, Joe Rogan,
+                    Rich Roll, Steven Bartlett, Tom Segura, Bert Kreischer, Trevor Wallace]
   # Skip videos whose title contains any of these (news broadcasts, music, etc. make poor clips).
   exclude_title_words: [news, broadcast, nightly, good morning america, live stream, livestream, full game,
                         audiobook, full movie, full album, sermon, asmr, sleep music, white noise]
@@ -101,6 +107,7 @@ analysis:
 editing:
   default_level: auto            # auto = the app picks the edit each clip needs (or simple | normal | hard | professional | extreme)
   parallel_renders: auto         # clips edited at the same time (auto: ~1 per 4 CPU cores, max 3)
+  clips_per_video_per_run: 2     # when it finds videos itself: at most this many clips from one video per run
   clips_per_run: 5               # how many finished clips you want per click (they can come from different videos)
   width: 1080
   height: 1920

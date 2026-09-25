@@ -25,6 +25,7 @@ from .editing.safety import censor
 from .events import Event, Reporter
 from .llm import Claude
 from .trends import run_trend_analysis
+from .media import CANCEL, Cancelled, check_cancel
 from .ytdl import BotCheck
 
 
@@ -62,6 +63,22 @@ class Pipeline:
         self.lock = threading.Lock()
         self.running = False
 
+    queue_hours = 2.0
+    queue_at = 0.0
+    queue: list[dict] | None = None
+
+    def queue_fresh(self) -> list[dict] | None:
+        """Videos the video scouts found in the background, if recent enough to use."""
+        if self.queue is None or time.time() - self.queue_at > self.queue_hours * 3600:
+            return None
+        return [c for c in self.queue if not self.db.is_processed(c["video_id"])]
+
+    def refill_queue(self) -> None:
+        profile = self.fresh_trends() or self.db.latest_profile()
+        want = max(12, int(self.cfg["discovery"].get("max_videos_per_run", 8)) * 3)
+        found = discover(self.cfg, self.db, self.rep, profile, want, board=BOARD)
+        self.queue, self.queue_at = found, time.time()
+
     def fresh_trends(self) -> dict | None:
         """The latest trend study, if the trend scouts made it recently enough to reuse."""
         profile = self.db.latest_profile()
@@ -81,6 +98,10 @@ class Pipeline:
         """Everything that happens after pressing "Get clips"."""
         return self._guarded(level, [], clips)
 
+    def stop(self) -> None:
+        """The Stop button: downloads, listening and renders in progress are halted right away."""
+        CANCEL.set()
+
     def clip_video(self, source: str, level: str | None = None, clips: int | None = None) -> list[dict]:
         """Clip videos you choose: one or more links (any site yt-dlp supports) or video files."""
         sources = split_sources(source)
@@ -92,6 +113,7 @@ class Pipeline:
         if not self.lock.acquire(blocking=False):
             raise RuntimeError("A run is already in progress")
         self.running = True
+        CANCEL.clear()
         started = time.time()
         try:
             produced = self._run(level, sources, clips)
@@ -99,7 +121,13 @@ class Pipeline:
             self.rep.emit(Event("done", "editing", f"Finished: {len(produced)} clips in {minutes:.1f} min",
                                 data={"clips": produced}))
             return produced
+        except Cancelled:
+            self.rep.emit(Event("stopped", "pipeline", "Stopped - the clips finished so far are kept"))
+            return []
         except Exception as exc:
+            if CANCEL.is_set():
+                self.rep.emit(Event("stopped", "pipeline", "Stopped - the clips finished so far are kept"))
+                return []
             self.rep.emit(Event("error", "pipeline", str(exc)))
             raise
         finally:
@@ -121,7 +149,9 @@ class Pipeline:
             max_videos = len(candidates)
         else:
             # more clips need more videos: roughly one video for every 2 clips
-            max_videos = max(int(self.cfg["discovery"].get("max_videos_per_run", 8)), min(60, want // 2 + 3))
+            per_video = max(1, int(self.cfg["editing"].get("clips_per_video_per_run", 2)))
+            max_videos = max(int(self.cfg["discovery"].get("max_videos_per_run", 8)),
+                             min(80, -(-want // per_video) + 4))
             # ---- Step 1: what goes viral right now (fresh every run)
             profile = self.fresh_trends()
             if profile:
@@ -134,8 +164,14 @@ class Pipeline:
                 with BOARD.work("trend", "Studying what goes viral right now"):
                     profile = run_trend_analysis(self.cfg, self.db, rep)
             # ---- Step 2: find long-form videos and watch them fully
-            rep.info("discovery", "Step 2/3 - finding long-form YouTube videos")
-            candidates = discover(self.cfg, self.db, rep, profile, max_videos, board=BOARD)
+            queued = self.queue_fresh()
+            if queued and len(queued) >= min(max_videos, 6):
+                rep.info("discovery", f"Step 2/3 - the video scouts already queued {len(queued)} viral candidates")
+                candidates = queued
+            else:
+                rep.info("discovery", "Step 2/3 - finding long-form YouTube videos (famous creators first)")
+                candidates = discover(self.cfg, self.db, rep, profile, max_videos, board=BOARD)
+                self.queue, self.queue_at = candidates, time.time()
             if not candidates:
                 raise RuntimeError("No suitable long-form videos found - widen discovery settings")
 
@@ -149,16 +185,40 @@ class Pipeline:
         produced: list[dict] = []
         analyzed = blocked = repeats = 0
 
+        # variety: when finding videos itself, at most `cap` clips come from any one video per run, so a
+        # batch is spread over many videos (pasted videos: as many as needed from what you chose)
+        if sources:
+            cap = want if len(sources) == 1 else max(2, -(-want // len(sources)))
+        else:
+            cap = max(1, int(self.cfg["editing"].get("clips_per_video_per_run", 2)))
+        made_from: Counter = Counter()
+
+        def room(counts: Counter) -> list:
+            return [cr for cr in pool if counts[_vid(cr[1])] < cap]
+
+        def ready() -> int:  # clips that can still be used under the per-video limit
+            per: Counter = Counter(_vid(r) for _, r in pool)
+            return sum(min(n, max(0, cap - made_from[v])) for v, n in per.items())
+
         def edit_layer() -> None:
             nonlocal pool
             n = min(LAYER, want - len(produced))
             take, kinds = [], Counter(p.get("category") for p in produced)
-            for _ in range(min(n, len(pool))):  # best first, but learned taste + variety move clips up or down
-                best = max(pool, key=lambda cr: cr[0].final_score + self.brain.adjust(
+            counts = Counter(made_from)
+            for _ in range(n):  # best first, but learned taste + variety move clips up or down
+                options = room(counts)
+                if not options:
+                    break
+                best = max(options, key=lambda cr: cr[0].final_score + self.brain.adjust(
                     cr[0].category, cr[1]["meta"].get("channel") or "", cr[0].duration, kinds))
                 pool.remove(best)
                 take.append(best)
                 kinds[best[0].category] += 1
+                counts[_vid(best[1])] += 1
+            if not take:
+                pool = []  # everything left comes from videos that already gave their share
+                return
+            made_from.update(_vid(r) for _, r in take)
             layer = len(produced) // LAYER + 1
             rep.info("editing", f"Step 3/3 - editing layer {layer}/{layers}: {len(take)} clip"
                                 f"{'s' if len(take) > 1 else ''} from {len({id(r) for _, r in take})} video(s)")
@@ -180,7 +240,7 @@ class Pipeline:
         transcribe_mod.THREAD_SHARE = workers
 
         def start_next(ex) -> bool:
-            if analyzed + len(running) >= max_videos or len(produced) >= want:
+            if CANCEL.is_set() or analyzed + len(running) >= max_videos or len(produced) >= want:
                 return False
             cand = next(todo, None)
             if cand is None:
@@ -199,6 +259,10 @@ class Pipeline:
                     cand = running.pop(fut)
                     try:
                         result = fut.result()
+                    except Cancelled:
+                        for f in running:
+                            f.cancel()
+                        raise
                     except BotCheck as exc:
                         blocked += 1
                         rep.error("analysis", str(exc))
@@ -234,12 +298,14 @@ class Pipeline:
                              f"{min(len(produced) + len(pool), want)}/{want} collected")
                     # finding videos itself: every full layer is edited right away so clips arrive early.
                     # videos you pasted are all watched first, so the best clips across them win.
-                    while not sources and len(pool) >= LAYER and len(produced) < want:
+                    while not sources and ready() >= LAYER and len(produced) < want and not CANCEL.is_set():
                         edit_layer()
                     start_next(ex)
 
-        while pool and len(produced) < want:
+        check_cancel()
+        while pool and len(produced) < want and not CANCEL.is_set():
             edit_layer()
+        check_cancel()
         if not produced and repeats:
             raise RuntimeError("You already got every strong moment in these videos - "
                                "paste other videos, or press Get clips to let it find new ones.")
@@ -280,6 +346,8 @@ class Pipeline:
 
         def work(plan) -> dict | None:  # ... then edit, review and fix several clips at the same time
             clip, title, hook, name, preset, why = plan
+            if CANCEL.is_set():
+                return None
             self.rep.info("editing", f"Editing: {title} ({preset.name} edit: {why})")
             slot = BOARD.work("editor", f"Editing: {title}")
             slot.__enter__()
@@ -301,6 +369,8 @@ class Pipeline:
                                 hook=clip.hook, emphasis=clip.emphasis_words, out_dir=out_dir, name=name,
                                 highlights=[h - offset for h in highlights])
                 info = render(job, preset, self.cfg, log=lambda m: self.rep.info("editing", f"{title}: {m}"))
+            except Cancelled:
+                return None
             except Exception as exc:
                 self.rep.error("editing", f"Render failed for {name}: {exc}")
                 return None

@@ -5,6 +5,8 @@ import functools
 import re
 import shutil
 import subprocess
+import threading
+import time
 import wave
 from pathlib import Path
 
@@ -41,13 +43,39 @@ def ensure_ffmpeg_on_path(bin_dir: Path) -> None:
     os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
 
 
+class Cancelled(RuntimeError):
+    """The user pressed Stop."""
+
+
+CANCEL = threading.Event()  # set by the Stop button: every long step checks it and stops right away
+
+
+def check_cancel() -> None:
+    if CANCEL.is_set():
+        raise Cancelled("Stopped")
+
+
 def run_ffmpeg(args: list[str], timeout: float | None = None) -> str:
+    check_cancel()
     cmd = [ffmpeg_exe(), "-hide_banner", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace")
+    started = time.time()
+    while True:  # wait in short steps so Stop can kill a long render immediately
+        try:
+            _, err = proc.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            if CANCEL.is_set() or (timeout and time.time() - started > timeout):
+                proc.kill()
+                proc.communicate()
+                if CANCEL.is_set():
+                    raise Cancelled("Stopped") from None
+                raise subprocess.TimeoutExpired(cmd, timeout) from None
     if proc.returncode != 0:
-        tail = "\n".join(proc.stderr.strip().splitlines()[-25:])
+        tail = "\n".join(err.strip().splitlines()[-25:])
         raise RuntimeError(f"ffmpeg failed ({proc.returncode}):\n{tail}")
-    return proc.stderr
+    return err
 
 
 def probe(path: Path) -> dict:

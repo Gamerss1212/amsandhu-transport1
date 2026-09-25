@@ -49,6 +49,12 @@ class AgentBoard:
         self._done = {role: 0 for role, _, _, _ in ROLES}
         self._names = {role: name for role, name, _, _ in ROLES}
         self._about = {role: about for role, _, _, about in ROLES}
+        self._duty: dict[str, tuple[str, float, str | None]] = {}  # role -> (standing duty, heartbeat, reason)
+
+    def beat(self, role: str, duty: str, reason: str | None = None) -> None:
+        """An agent's heartbeat while it is not busy: what it is watching for (or why it is on standby)."""
+        with self._lock:
+            self._duty[role] = (duty, time.time(), reason)
 
     @contextmanager
     def work(self, role: str, task: str):
@@ -67,13 +73,31 @@ class AgentBoard:
                 self._done[role] += 1
 
     def snapshot(self) -> list[dict]:
+        """Every agent's live state: working (on a job), watching (alive, on its standing duty),
+        standby (alive but waiting on something it names), or offline (no heartbeat - and why)."""
+        now = time.time()
         with self._lock:
             out = []
             for role, slots in self._slots.items():
+                duty, beat, reason = self._duty.get(role, ("", 0.0, None))
+                role_busy = any(x is not None for x in slots)  # a teammate on a job keeps the role's pulse alive
                 for i, s in enumerate(slots):
+                    if s is not None:
+                        state, task = "working", s[0]
+                    elif role_busy and (now - beat > 120 or not duty):
+                        state, task = "watching", "Standing by to help - " + next(x[0] for x in slots if x).lower()
+                    elif now - beat > 120:
+                        state = "offline"
+                        task = reason or ("Starting up..." if not beat else
+                                          f"No heartbeat for {int((now - beat) // 60)} min - restarting")
+                    elif reason:
+                        state, task = "standby", reason
+                    else:
+                        state, task = "watching", duty
                     out.append({"role": role, "name": f"{self._names[role]} {i + 1}", "about": self._about[role],
-                                "busy": s is not None, "task": s[0] if s else "",
-                                "for": round(time.time() - s[1]) if s else 0, "done": self._done[role]})
+                                "state": state, "busy": s is not None, "task": task,
+                                "for": round(now - s[1]) if s else 0, "done": self._done[role],
+                                "beat": round(now - beat) if beat else None})
             return out
 
     def busy(self) -> int:

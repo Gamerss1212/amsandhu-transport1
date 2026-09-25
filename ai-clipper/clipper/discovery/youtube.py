@@ -218,11 +218,19 @@ def ytdlp_enrich(cands: list[dict], workers: int = 2) -> None:
         list(ex.map(one, cands))
 
 
-def rank_candidates(cands: list[dict], profile: dict | None, now: float | None = None) -> list[dict]:
+def is_famous(channel: str, famous: list[str]) -> bool:
+    key = re.sub(r"[^a-z0-9]", "", channel.lower())
+    return bool(key) and any(re.sub(r"[^a-z0-9]", "", f.lower()) in key or key in re.sub(r"[^a-z0-9]", "", f.lower())
+                             for f in famous if len(f) > 3)
+
+
+def rank_candidates(cands: list[dict], profile: dict | None, now: float | None = None,
+                    famous: list[str] | None = None) -> list[dict]:
     """Adds `rank_score` (0-100) and returns candidates best-first."""
     if not cands:
         return []
     now = now or time.time()
+    famous = famous or []
     views = np.array([max(c["views"], 1.0) for c in cands])
     age_h = np.array([max(1.0, (now - c["published"]) / 3600) for c in cands])
     eng = np.array([c["likes"] / max(c["views"], 1.0) for c in cands])
@@ -232,8 +240,10 @@ def rank_candidates(cands: list[dict], profile: dict | None, now: float | None =
     fresh = np.array([1.0 if c.get("source") == "watchlist" and now - c["published"] < 48 * 3600 else 0.0
                       for c in cands])
     heat = np.array([1.0 if c.get("has_heatmap") else 0.0 for c in cands])  # "most replayed" data helps
+    star = np.array([1.0 if is_famous(c.get("channel", ""), famous) else 0.0 for c in cands])
     score = (0.30 * pct_rank(np.log10(views / age_h)) + 0.20 * pct_rank(np.log10(views))
-             + 0.10 * pct_rank(eng) + 0.10 * pct_rank(subs) + 0.20 * fit + 0.10 * fresh + 0.05 * heat) / 1.05
+             + 0.10 * pct_rank(eng) + 0.20 * pct_rank(subs) + 0.20 * fit + 0.10 * fresh + 0.05 * heat
+             + 0.30 * star) / 1.45
     for c, s in zip(cands, score):
         c["rank_score"] = round(float(s) * 100, 1)
     return sorted(cands, key=lambda c: -c["rank_score"])
@@ -295,16 +305,23 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, 
         lengths = ["long"] if d["min_duration_minutes"] >= 20 else ["long", "medium"]
         def search_one(q: str) -> list[dict]:
             found = []
+            rep.emit(Event("watch", "discovery", data={"kind": "search", "query": q, "state": "start"}))
             with (board.work("scout", f"Searching YouTube: {q}") if board else nullcontext()):
                 for length in lengths:
                     try:
                         found += ytdlp_search(q, 40 if length == "long" else 20, d["published_within_days"], length)
                     except Exception as exc:
                         rep.info("discovery", f"Search '{q}' ({length}) failed: {exc}")
+            rep.emit(Event("watch", "discovery", data={"kind": "search", "query": q, "state": "done",
+                                                       "found": len(found)}))
             return found
 
         # the video scouts search in parallel (3 at a time - polite to YouTube, several times faster)
-        queries = random.sample(d["search_queries"], len(d["search_queries"]))  # a different order every run
+        famous = list(d.get("famous_creators") or [])
+        # famous creators first (a different handful each run), then the general searches
+        picks = random.sample(famous, min(len(famous), 8))
+        queries = [f"{name} full episode" for name in picks] + \
+            random.sample(d["search_queries"], len(d["search_queries"]))
         rep.progress("discovery", 0.4, f"Video scouts searching YouTube ({len(queries)} searches)...")
         with ThreadPoolExecutor(max_workers=3) as ex:
             for found in ex.map(search_one, queries):
@@ -346,7 +363,14 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, 
             continue
         kept.append(c)
 
-    ranked = rank_candidates(kept, profile, now)
+    ranked = rank_candidates(kept, profile, now, d.get("famous_creators") or [])
+    # spread over creators: each channel's best video first, then second-best videos, and so on
+    seen: dict[str, int] = {}
+    for c in ranked:
+        key = (c.get("channel") or c["video_id"]).lower()
+        c["_round"] = seen.get(key, 0)
+        seen[key] = c["_round"] + 1
+    ranked.sort(key=lambda c: (c.pop("_round"), -c["rank_score"]))
     rep.info("discovery", f"{len(cands)} videos found, {len(ranked)} pass the filters")
     for c in ranked[:5]:
         rep.info("discovery", f"  {c['rank_score']:5.1f}  {c['channel']} - {c['title']} "

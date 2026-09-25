@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from .. import ytdl
-from ..media import ffmpeg_exe, probe, run_ffmpeg
+from ..media import check_cancel, ffmpeg_exe, probe, run_ffmpeg
 
 KEEP_INFO = ("id", "title", "description", "channel", "channel_id", "duration", "view_count",
              "like_count", "comment_count", "heatmap", "chapters", "tags", "upload_date", "width",
@@ -61,6 +61,7 @@ def download(source: str, work_dir: Path, on_progress=None, log=None,
     video_path = out_dir / "source.mp4"
 
     def hook(d: dict) -> None:
+        check_cancel()
         if on_progress and d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             if total:

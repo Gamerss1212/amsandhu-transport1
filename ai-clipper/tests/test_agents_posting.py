@@ -212,3 +212,55 @@ def test_agent_team_watches_videos_in_parallel(cfg, monkeypatch):
     out = pipe._run(None, [], 10)
     assert len(out) == 10 and peak[0] >= 2  # several videos watched at the same time
     assert time.time() - t0 < 0.3 * 5  # 5 videos x 0.3 s in well under the sequential time
+
+
+def test_agent_states_watching_standby_offline():
+    board = AgentBoard()
+    board.beat("editor", "Ready to edit")
+    board.beat("publish", "", reason="Standing by: connect TikTok or Instagram")
+    states = {a["name"]: a for a in board.snapshot()}
+    assert states["Editor 1"]["state"] == "watching" and states["Publisher 1"]["state"] == "standby"
+    assert "connect TikTok" in states["Publisher 1"]["task"]
+    assert states["Listener 1"]["state"] == "offline"  # never beat: shown with a reason, not hidden
+    board._duty["editor"] = ("Ready", time.time() - 600, None)
+    assert "No heartbeat" in {a["name"]: a for a in board.snapshot()}["Editor 1"]["task"]
+
+
+def test_stop_halts_a_long_ffmpeg_job_right_away(tmp_path):
+    import threading
+
+    from clipper.media import CANCEL, Cancelled, run_ffmpeg
+
+    CANCEL.clear()
+    threading.Timer(0.8, CANCEL.set).start()
+    t0 = time.time()
+    with pytest.raises(Cancelled):
+        run_ffmpeg(["-f", "lavfi", "-i", "testsrc2=s=1280x720:d=600", "-c:v", "libx264", "-preset", "slow",
+                    str(tmp_path / "long.mp4")])
+    assert time.time() - t0 < 5
+    CANCEL.clear()
+
+
+def test_clips_come_from_many_videos(cfg, monkeypatch):
+    from clipper import pipeline as pipeline_mod
+    from clipper.analysis.moments import Clip
+    from clipper.pipeline import Pipeline
+
+    def fake_analyze(cand, *a, **k):  # every video has 6 strong moments
+        clips = [Clip(start=i * 100, end=i * 100 + 40, title=f"t{i}", hook="h", category="story",
+                      final_score=90 - i) for i in range(6)]
+        return {"meta": {"id": cand["video_id"], "title": "v", "channel": cand["video_id"]}, "clips": clips,
+                "signals": {"raw": {}}, "transcript": {"words": []}, "video": None}
+    pipe = Pipeline(cfg)
+    made = []
+    monkeypatch.setattr(pipe, "_edit", lambda result, level, run_id="", layer=1:
+                        made.extend((result["meta"]["id"], c.title) for c in result["clips"]) or
+                        [{"layer": layer, "category": "story"} for _ in result["clips"]])
+    monkeypatch.setattr(pipeline_mod, "analyze_video", fake_analyze)
+    monkeypatch.setattr(pipeline_mod, "run_trend_analysis", lambda *a: {"n_videos": 400})
+    monkeypatch.setattr(pipeline_mod, "discover", lambda *a, **k: [
+        {"video_id": f"v{i}", "title": "x", "channel": f"c{i}"} for i in range(12)])
+    out = pipe._run(None, [], 10)
+    from collections import Counter
+    per_video = Counter(v for v, _ in made)
+    assert len(out) == 10 and max(per_video.values()) <= 2 and len(per_video) >= 5
