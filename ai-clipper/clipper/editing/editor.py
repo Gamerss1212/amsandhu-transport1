@@ -554,8 +554,12 @@ def render(job: RenderJob, preset: Preset, cfg, log=None) -> dict:
             say(history[-1])
             step += 1
             continue
-        with BOARD.work("review", f"Watching the finished {job.name} and fixing problems"):
+        with BOARD.work("review", f"Watching the finished {job.name} and fixing problems") as me:
             fixed, retry, notes = review_and_fix(out, info["duration"], W, H, fps, srt, encode)
+            BOARD.report(me, f"Watched {job.name} ({info['duration']:.0f}s): "
+                         + (f"fixed {', '.join(f.code for f in fixed)}" if fixed else "nothing needed fixing")
+                         + (f"; still sees {', '.join(f.code for f in retry)} - asking for a safer re-edit" if retry else ""),
+                         "fail" if retry else "done")
         info["duration"] = round(probe(out)["duration"], 2)
         history += [f"fixed {f.code}: {f.detail}" for f in fixed]
         result = {**info, "review": {"passes": attempt, "fixed": [f.code for f in fixed],

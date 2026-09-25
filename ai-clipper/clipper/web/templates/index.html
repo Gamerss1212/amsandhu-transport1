@@ -242,6 +242,24 @@
   .aline span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .aline.working span { color: #eadcff; } .aline.offline span { color: #ffd1da; }
   .aline em { font-style: normal; color: var(--faint); font-size: 11px; }
+  .aline { cursor: pointer; grid-template-rows: auto auto; align-items: start; } .aline:hover { background: #ffffff06; }
+  .aline { grid-template-columns: 10px minmax(0, 1fr) !important; row-gap: 2px !important; padding: 7px 0 !important; }
+  .aline i { grid-column: 1; grid-row: 1; margin-top: 5px; } .aline b { grid-column: 2; grid-row: 1; }
+  .aline span { grid-column: 2; grid-row: 2; } .aline small { grid-column: 2 !important; grid-row: 3; margin-top: 0 !important; }
+  .aline span, .aline small { white-space: normal !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+  .aline small { -webkit-line-clamp: 3; }
+  .aline small { grid-column: 2 / 4; color: #9fe8c6; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }
+  .aline small.fail { color: #ffb4c2; } .aline small:empty { display: none; }
+  .agentbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 4px; }
+  .agentbar button { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: #0b0b10; color: var(--muted); font-size: 12.5px; }
+  .agentbar button.on { color: #fff; border-color: var(--accent); background: #a855f71c; }
+  .agentbar input { flex: 1; min-width: 160px; padding: 7px 12px; border-radius: 99px; border: 1px solid var(--line); background: #0b0b10; color: var(--text); }
+  .agentfeed { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; background: #07070b; padding: 12px 14px; max-height: 300px; overflow: auto; font-size: 12.5px; }
+  .agentfeed h3 { margin: 0 0 8px; font-size: 14px; } .agentfeed .fl { display: grid; grid-template-columns: 88px minmax(0, 190px) minmax(0, 1fr); gap: 10px; padding: 3px 0; border-top: 1px solid #ffffff08; animation: pop .3s both; }
+  .agentfeed .fl time { color: var(--faint); } .agentfeed .fl b { color: var(--accent3); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agentfeed .fl.fail span { color: #ffb4c2; } .agentfeed .fl span { color: #e4e4ee; }
+  .ahist { margin-top: 12px; } .ahist div { padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; } .ahist time { color: var(--faint); margin-right: 8px; }
+  @media (max-width: 640px) { .agentfeed .fl { grid-template-columns: 1fr; gap: 0; } }
 
   /* ---------- clips ---------- */
   .runlabel { font-size: 11px; color: var(--faint); letter-spacing: .12em; text-transform: uppercase; font-weight: 800; margin: 20px 0 6px; }
@@ -502,6 +520,11 @@
       <div class="bigstat off"><b id="stOff">0</b><span>offline</span></div>
     </div>
     <div class="hint" id="regLine"></div>
+    <div class="agentfeed"><h3>Live: what the agents are finding</h3><div id="agentFeed"><div class="hint">Findings appear here the moment an agent finishes a task. Press Get clips to put the team to work.</div></div></div>
+    <div class="agentbar" id="agentBar">
+      <button data-f="all" class="on">All 150</button><button data-f="working">Working now</button><button data-f="found">Has findings</button><button data-f="offline">Problems</button>
+      <input id="agentSearch" placeholder="Find an agent or task (e.g. hook, audio, 12:30)">
+    </div>
     <div id="roles"></div>
   </section>
 
@@ -554,6 +577,7 @@
 </dialog>
 
 <!-- clip package: the crew's full decision record -->
+<dialog id="agentDlg" style="width:min(640px,94vw)"><div class="pad"><button class="x" id="agentClose" aria-label="Close">×</button><div id="agentBody"></div></div></dialog>
 <dialog id="pkgDlg"><div class="pad"><button class="x" id="pkgClose" aria-label="Close">×</button><div id="pkgBody"></div></div></dialog>
 
 <!-- connect account -->
@@ -685,9 +709,12 @@ function setRunning(on) {
 }
 
 // ---------------- agents ----------------
+let agentFilter = "all", feedSeq = 0, lastAgents = null;
+const ago = (s) => s == null ? "" : s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${Math.floor(s / 3600)} h ago`;
 async function loadAgents() {
   let d;
-  try { d = await (await fetch("/api/agents")).json(); } catch (e) { return; }
+  try { d = await (await fetch("/api/agents?after=" + feedSeq)).json(); } catch (e) { return; }
+  lastAgents = d;
   const by = {working: 0, watching: 0, standby: 0, offline: 0};
   d.agents.forEach((a) => by[a.state] = (by[a.state] || 0) + 1);
   $("stTotal").textContent = d.size; $("stWork").textContent = by.working; $("stWatch").textContent = by.watching;
@@ -699,16 +726,59 @@ async function loadAgents() {
   const reg = d.registry || {};
   $("regLine").innerHTML = `Assignment registry: <b>${reg.running || 0}</b> running · <b>${reg.queued || 0}</b> queued · <b>${reg.done || 0}</b> done` +
     (reg.failed ? ` · <b style="color:var(--bad)">${reg.failed}</b> failed after retries` : "") + ` · ${reg.jobs || 0} video(s) in review` + (d.restarts ? ` · ${d.restarts} agent restart(s)` : "");
+  if (d.feed && d.feed.length) {
+    const box = $("agentFeed"); if (!feedSeq) box.innerHTML = "";
+    d.feed.forEach((e) => { const el = document.createElement("div"); el.className = "fl " + e.kind; el.dataset.id = e.id;
+      el.innerHTML = `<time>${new Date(e.t * 1000).toLocaleTimeString()}</time><b>${esc(e.name)}</b><span>${esc(e.text)}</span>`; box.prepend(el); });
+    while (box.children.length > 200) box.lastChild.remove();
+    feedSeq = d.feed[d.feed.length - 1].seq;
+  }
+  renderAgents();
+}
+let agentShape = "";
+const agentLine = (a) => `<i></i><b>${esc(a.name)}</b><span>${a.state === "working" ? "Now: " : ""}${esc(a.task || "Ready")} <em>· ${a.done} done${a.failed ? `, ${a.failed} failed` : ""}${a.state === "working" ? ` · ${a.for}s` : ""}</em></span><small class="${/^(Failed|Could not|Hit a problem|Stopped)/.test(a.last || "") ? "fail" : ""}">${a.last ? `Last finding (${ago(a.last_ago)}): ${esc(a.last)}` : ""}</small>`;
+const divCount = (all) => { const n = (st) => all.filter((a) => a.state === st).length;
+  return `<b>${all.length}</b> agents · <b>${n("working")}</b> working · ${n("watching")} watching${n("standby") ? ` · ${n("standby")} standby` : ""}${n("offline") ? ` · <b style="color:var(--bad)">${n("offline")} offline</b>` : ""}`; };
+function renderAgents() {
+  const d = lastAgents; if (!d) return;
+  const q = ($("agentSearch").value || "").trim().toLowerCase();
+  const keep = (a) => (agentFilter === "all" || (agentFilter === "working" && a.state === "working") || (agentFilter === "found" && a.last)
+    || (agentFilter === "offline" && (a.state === "offline" || a.failed))) && (!q || `${a.name} ${a.task} ${a.last} ${a.about}`.toLowerCase().includes(q));
+  const shown = d.agents.filter(keep), shape = shown.map((a) => a.id).join(",");
+  if (shape === agentShape && shape) {  // same agents on screen: update each line in place (keeps clicks and hovers working)
+    const byId = new Map(d.agents.map((a) => [a.id, a]));
+    $("roles").querySelectorAll(".aline").forEach((el) => { const a = byId.get(el.dataset.id); if (!a) return;
+      const cls = "aline " + a.state, html = agentLine(a);
+      if (el.className !== cls) el.className = cls;
+      if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; } });
+    $("roles").querySelectorAll(".division").forEach((el) => { el.querySelector(".cnt").innerHTML = divCount(d.agents.filter((a) => a.division === el.dataset.div)); });
+    return;
+  }
+  agentShape = shape;
   $("roles").innerHTML = (d.divisions || []).map((dv) => {
-    const list = d.agents.filter((a) => a.division === dv.key);
-    const n = (st) => list.filter((a) => a.state === st).length;
+    const all = d.agents.filter((a) => a.division === dv.key), list = all.filter(keep);
+    if (!list.length) return "";
     const roles = [];
     list.forEach((a) => { let r = roles.find((x) => x.role === a.role); if (!r) roles.push(r = {role: a.role, about: a.about, list: []}); r.list.push(a); });
-    return `<div class="division"><div class="dhead"><h2>${esc(dv.name)}</h2><span class="cnt"><b>${list.length}</b> agents · <b>${n("working")}</b> working · ${n("watching")} watching${n("standby") ? ` · ${n("standby")} standby` : ""}${n("offline") ? ` · <b style="color:var(--bad)">${n("offline")} offline</b>` : ""}</span></div>
+    return `<div class="division" data-div="${esc(dv.key)}"><div class="dhead"><h2>${esc(dv.name)}</h2><span class="cnt">${divCount(all)}</span></div>
       <div class="rolegrid">${roles.map((r) => `<div class="rolecard"><h3>${esc(r.list[0].name.replace(/ \d+$/, ""))}${r.list.length > 1 ? ` <span class="timer">× ${r.list.length}</span>` : ""}</h3><div class="hint">${esc(r.about)}</div>
-        ${r.list.map((a) => `<div class="aline ${a.state}" title="${esc(a.name)} · ${a.state} · ${esc(a.task)}"><i></i><b>${esc(a.name)}</b><span>${esc(a.task || "Ready")} <em>· ${a.done} done${a.failed ? `, ${a.failed} failed` : ""}${a.state === "working" ? ` · ${a.for}s` : ""}</em></span></div>`).join("")}</div>`).join("")}</div></div>`;
-  }).join("");
+        ${r.list.map((a) => `<div class="aline ${a.state}" data-id="${esc(a.id)}" title="Click for ${esc(a.name)}'s full history">${agentLine(a)}</div>`).join("")}</div>`).join("")}</div></div>`;
+  }).join("") || `<div class="hint" style="margin-top:18px">No agent matches that filter right now.</div>`;
 }
+async function openAgent(id) {
+  let a; try { a = await (await fetch("/api/agents/" + encodeURIComponent(id))).json(); } catch (e) { return; }
+  $("agentBody").innerHTML = `<h2 style="margin:0">${esc(a.name)}</h2><div class="hint">${esc(a.about)}</div>
+    <p><b>State:</b> ${esc(a.state)}${a.state === "working" ? ` for ${a.for}s` : ""}<br><b>${a.state === "working" ? "Working on" : "Doing"}:</b> ${esc(a.task || "Ready")}<br>
+    <b>Record:</b> ${a.done} finished, ${a.failed} failed${a.beat != null ? ` · heartbeat ${ago(a.beat)}` : ""}</p>
+    <h3 style="margin:14px 0 0">Recent findings</h3><div class="ahist">${(a.history || []).slice().reverse().map((h) => `<div><time>${new Date(h.t * 1000).toLocaleTimeString()}</time>${esc(h.text)}</div>`).join("") || `<div class="hint">Nothing yet - this agent has not been given a task since the app opened.</div>`}</div>`;
+  $("agentDlg").showModal();
+}
+$("agentBar").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return;
+  agentFilter = b.dataset.f; $("agentBar").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); renderAgents(); });
+$("agentSearch").addEventListener("input", renderAgents);
+$("roles").addEventListener("click", (e) => { const el = e.target.closest(".aline"); if (el) openAgent(el.dataset.id); });
+$("agentFeed").addEventListener("click", (e) => { const el = e.target.closest(".fl"); if (el) openAgent(el.dataset.id); });
+$("agentClose").onclick = () => $("agentDlg").close();
 
 // ---------------- live activity ----------------
 const watchCards = new Map(), STAGES = ["download", "listen", "audio", "judge", "done"], STAGE_TXT = {download: "Get", listen: "Listen", audio: "Audio", judge: "150 agents", done: "Done"};

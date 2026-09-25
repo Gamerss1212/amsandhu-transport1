@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import re
 import threading
@@ -14,7 +15,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import ytdl
+from .. import APP_VERSION, ytdl
 from ..agents import BOARD, DIVISIONS, TEAM_SIZE
 from ..config import Config
 from ..crew import CREW
@@ -226,8 +227,21 @@ def create_app(cfg: Config) -> FastAPI:
     app.mount("/media", StaticFiles(directory=str(out_dir)), name="media")
 
     @app.get("/", response_class=HTMLResponse)
-    def index() -> str:
-        return TEMPLATE.read_text(encoding="utf-8")
+    def index() -> HTMLResponse:
+        # never let the browser show a page cached from an older version of the app
+        return HTMLResponse(TEMPLATE.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/version")
+    def version() -> dict:
+        return {"app": "ai-clipper", "version": APP_VERSION, "agents": TEAM_SIZE}
+
+    @app.post("/api/shutdown")
+    def shutdown(request: Request) -> dict:
+        """Lets a newer copy of the app close this one (only from this computer)."""
+        if request.client is None or request.client.host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(403, "Only from this computer")
+        threading.Timer(0.3, lambda: os._exit(0)).start()
+        return {"closing": True}
 
     @app.get("/api/status")
     def status() -> dict:
@@ -336,9 +350,16 @@ def create_app(cfg: Config) -> FastAPI:
         pipe.stop()
         return {"stopped": True}
 
+    @app.get("/api/agents/{agent_id}")
+    def agent_detail(agent_id: str) -> dict:
+        a = next((x for x in BOARD.snapshot() if x["id"] == agent_id), None)
+        if a is None:
+            raise HTTPException(404, "No such agent")
+        return {**a, "history": BOARD.history(agent_id)}
+
     @app.get("/api/agents")
-    def agents() -> dict:
-        return {"size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot(),
+    def agents(after: int = 0) -> dict:
+        return {"feed": BOARD.feed(after), "size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot(),
                 "divisions": [{"key": k, "name": n} for k, n in DIVISIONS], "registry": CREW.registry.stats(),
                 "restarts": CREW.restarts}
 

@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ..agents import BOARD, ROLES
-from ..media import CANCEL, Cancelled
+from ..media import CANCEL, Cancelled, fmt_ts
+from .narrate import describe
 
 COMMAND = {"chief", "dispatch", "consensus", "dedupe", "ranker", "coverage"}
 # roles run by the crew's own worker threads (intake, production and publishing agents are driven by
@@ -287,6 +288,20 @@ class Registry:
             return out
 
 
+def _task_line(a: Assignment, ev) -> str:
+    """What the agent is doing right now, specific enough to picture it: the job, the stretch of video
+    it is reading, which video, and whether it is a retry."""
+    line = ("Helping: " if a.helper else "") + a.label
+    if a.span and a.kind not in ("map", "plan", "full", "consensus", "dedupe", "shortlist", "decide", "coverage"):
+        line += f" · {fmt_ts(a.span[0])}-{fmt_ts(a.span[1])}"
+    title = (getattr(ev, "meta", None) or {}).get("title") if ev is not None else None
+    if title:
+        line += f" · in \"{title[:40]}\""
+    if a.attempts > 1:
+        line += f" · attempt {a.attempts}"
+    return line
+
+
 class Crew:
     """The crew's agents as live worker threads: started once, running for as long as the app is open."""
 
@@ -347,17 +362,23 @@ class Crew:
             token = a.token
             job = reg.jobs.get(a.job)
             fn = reg.executors.get(a.kind)
-            BOARD.start(agent_id, ("Helping: " if a.helper else "") + a.label)
+            ev = getattr(job.ctx, "ev", None) if job else None
+            BOARD.start(agent_id, _task_line(a, ev))
             ok = False
             try:
                 if job is None or fn is None:
                     raise RuntimeError(f"no executor for {a.kind}")
+                t0 = time.time()
                 result = fn(a, job.ctx, agent_id)
                 ok = reg.complete(a, token, result)
+                BOARD.report(agent_id, describe(a, result, ev) + f" · {time.time() - t0:.1f}s"
+                             + ("" if ok else " (arrived late - a retry already took over)"), "done" if ok else "late")
             except Cancelled:
                 reg.fail(a, token, "stopped")
+                BOARD.report(agent_id, "Stopped: " + a.label, "fail")
             except Exception as exc:
                 reg.fail(a, token, f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}")
+                BOARD.report(agent_id, f"Hit a problem on '{a.label}' ({type(exc).__name__}) - will be retried", "fail")
             finally:
                 BOARD.finish(agent_id, ok)
 

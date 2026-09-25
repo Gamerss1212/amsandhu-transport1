@@ -276,3 +276,41 @@ def test_clips_come_from_many_videos(cfg, monkeypatch):
     from collections import Counter
     per_video = Counter(v for v, _ in made)
     assert len(out) == 10 and max(per_video.values()) <= 2 and len(per_video) >= 5
+
+
+def test_agents_report_live_findings_and_history(cfg):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from clipper import APP_VERSION
+    from clipper.crew.narrate import describe
+    from clipper.web.app import create_app
+
+    board = AgentBoard()
+    with board.work("download", "Downloading x") as me:
+        board.report(me, "Downloaded x (4:37 long, 70 MB)")
+    with board.work("download", "Downloading y"):
+        pass  # no finding of its own: the board records what it finished
+    snap = {a["id"]: a for a in board.snapshot()}
+    assert snap[me]["last"].startswith("Done in") and snap[me]["last"].endswith("Downloading y")
+    assert [h["text"] for h in board.history(me)][0] == "Downloaded x (4:37 long, 70 MB)"
+    feed = board.feed()
+    assert [e["seq"] for e in feed] == sorted(e["seq"] for e in feed) and board.feed(feed[-1]["seq"]) == []
+    board.report("no-such-agent", "ignored")
+    assert len(board.feed()) == len(feed)
+
+    gate = SimpleNamespace(kind="gate", label="Captions check")
+    assert describe(gate, {"score": 62.0, "issues": ["captions cover a face"], "facts": {"words": 80}}) \
+        == "Scored 62/100 (words 80) - flagged: captions cover a face"
+    assert describe(gate, {"score": 97, "issues": []}).endswith("no problems found")
+    assert describe(SimpleNamespace(kind="scout"), {"score": [0.9], "I": [0], "J": [3]}, ev=None)  # never raises
+
+    client = TestClient(create_app(cfg))
+    assert client.get("/api/version").json() == {"app": "ai-clipper", "version": APP_VERSION, "agents": TEAM_SIZE}
+    d = client.get("/api/agents").json()
+    assert len(d["agents"]) == TEAM_SIZE == 150 and "feed" in d and "last" in d["agents"][0]
+    one = client.get(f"/api/agents/{d['agents'][0]['id']}").json()
+    assert one["id"] == d["agents"][0]["id"] and isinstance(one["history"], list)
+    assert client.get("/api/agents/nobody").status_code == 404
+    assert client.get("/").headers["cache-control"] == "no-store"

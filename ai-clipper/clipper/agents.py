@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
 from contextlib import contextmanager
 
 # (role, division, display name, how many agents, what they do)
@@ -142,6 +143,31 @@ class AgentBoard:
         self._failed = {a["id"]: 0 for a in self.agents}
         self._alive: dict[str, float] = {}               # agent id -> last own heartbeat (crew agents)
         self._duty: dict[str, tuple[str, float, str | None]] = {}  # role -> (standing duty, heartbeat, reason)
+        self._last: dict[str, tuple[str, float]] = {}    # agent id -> (latest finding, when)
+        self._hist: dict[str, deque] = {a["id"]: deque(maxlen=8) for a in self.agents}
+        self._feed: deque = deque(maxlen=400)            # every agent's findings, newest last
+        self._seq = 0
+
+    def report(self, agent_id: str | None, text: str, kind: str = "done") -> None:
+        """What an agent just concluded, in one sentence: shown on its card and in the live feed."""
+        if not agent_id or agent_id not in self._by_id:
+            return
+        with self._lock:
+            now = time.time()
+            self._seq += 1
+            self._last[agent_id] = (text[:220], now)
+            self._hist[agent_id].append({"t": now, "text": text[:220], "kind": kind})
+            a = self._by_id[agent_id]
+            self._feed.append({"seq": self._seq, "t": now, "id": agent_id, "name": a["name"],
+                               "division": a["division"], "text": text[:220], "kind": kind})
+
+    def feed(self, after: int = 0) -> list[dict]:
+        with self._lock:
+            return [e for e in self._feed if e["seq"] > after][-120:]
+
+    def history(self, agent_id: str) -> list[dict]:
+        with self._lock:
+            return list(self._hist.get(agent_id, ()))
 
     def role_of(self, role: str) -> str:
         return ALIASES.get(role, role)
@@ -158,7 +184,7 @@ class AgentBoard:
 
     def start(self, agent_id: str, task: str) -> None:
         with self._lock:
-            self._busy[agent_id] = (task[:110], time.time())
+            self._busy[agent_id] = (task[:160], time.time())
             self._alive[agent_id] = time.time()
 
     def finish(self, agent_id: str, ok: bool = True) -> None:
@@ -175,8 +201,8 @@ class AgentBoard:
             ids = self._roles[role]
             agent = next((a for a in ids if a not in self._busy), None)
             if agent is not None:
-                self._busy[agent] = (task[:110], time.time())
-        ok = False
+                self._busy[agent] = (task[:160], time.time())
+        ok, t0 = False, time.time()
         try:
             yield agent
             ok = True
@@ -186,6 +212,10 @@ class AgentBoard:
                     self._busy.pop(agent, None)
                     self._alive[agent] = time.time()
                     (self._done if ok else self._failed)[agent] += 1
+                    fresh = self._last.get(agent, ("", 0.0))[1] >= t0
+            if agent is not None and not fresh:
+                self.report(agent, (f"Done in {time.time() - t0:.1f}s: " if ok else "Could not finish: ") + task,
+                            "done" if ok else "fail")
 
     def snapshot(self) -> list[dict]:
         """Every agent's live state: working (on a job), watching (alive, on its standing duty),
@@ -214,7 +244,9 @@ class AgentBoard:
                     state, task = "watching", duty or "Waiting for the next job"
                 out.append({**a, "state": state, "busy": bool(busy), "task": task,
                             "for": round(now - busy[1]) if busy else 0, "done": self._done[aid],
-                            "failed": self._failed[aid], "beat": round(now - beat) if beat else None})
+                            "failed": self._failed[aid], "beat": round(now - beat) if beat else None,
+                            "last": self._last.get(aid, ("", 0))[0],
+                            "last_ago": round(now - self._last[aid][1]) if aid in self._last else None})
             return out
 
     def busy(self) -> int:

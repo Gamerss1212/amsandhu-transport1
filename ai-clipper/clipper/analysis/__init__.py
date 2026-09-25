@@ -9,7 +9,7 @@ from ..agents import BOARD
 from ..config import Config
 from ..events import Event, Reporter
 from ..llm import Claude
-from ..media import audio_for_analysis
+from ..media import audio_for_analysis, fmt_ts
 from .download import caption_file, download, ytdlp_comments
 from .moments import Clip, clip_words, select_moments
 from .signals import compute_signals
@@ -39,11 +39,13 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         rep.emit(Event("watch", "analysis", data={**base, **extra, "stage": stage, "progress": progress}))
 
     watch("download", 0.0)
-    with BOARD.work("download", f"Downloading {name}"):
+    with BOARD.work("download", f"Downloading {name}") as me:
         video, info = download(cand.get("input") or vid, cfg.path("paths.work_dir"),
                                lambda f: (rep.progress("analysis", 0.02 + 0.18 * f, "Downloading..."),
                                           watch("download", f)),
                                log=lambda m: rep.info("analysis", m))  # any length: no limit on videos you choose
+        BOARD.report(me, f"Downloaded \"{(info.get('title') or name)[:50]}\" ({fmt_ts(float(info.get('duration') or 0))} long, "
+                         f"{video.stat().st_size / 1e6:.0f} MB{', audio only' if info.get('audio_only') else ''})")
     base.update(title=info.get("title") or base["title"], channel=info.get("channel") or base["channel"],
                 duration=float(info.get("duration") or 0))
     watch("listen", 0.0)
@@ -54,13 +56,16 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
     rep.progress("analysis", 0.2, "Transcribing the whole video (word by word)...")
     # the built-in judge reads English; Claude (optional) handles any language
     language = None if llm else cfg["discovery"].get("language")
-    with BOARD.work("listen", f"Listening to {name}"):
+    with BOARD.work("listen", f"Listening to {name}") as me:
         transcript = transcribe(video, a["whisper_model"], a["whisper_device"], caption_file(video),
                                 log=lambda m: rep.info("analysis", m), language=language,
                                 long_hours=float(a.get("long_video_hours", 0.33)),
                                 long_model=a.get("long_video_model", "base"),
                                 progress=lambda f, m: (rep.progress("analysis", 0.2 + 0.15 * f, m),
                                                        watch("listen", f, note=m)))
+        BOARD.report(me, f"Heard {len(transcript['words'])} words in \"{name[:40]}\" via {transcript['source']}"
+                         + (f" - opens with: \"{' '.join(w['w'] if 'w' in w else w.get('word', '') for w in transcript['words'][:9]).strip()}...\""
+                            if transcript['words'] else ""))
     rep.info("analysis", f"Transcript: {len(transcript['words'])} words via {transcript['source']}")
 
     comments = []
@@ -74,10 +79,12 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
             rep.info("analysis", f"Comments unavailable: {exc}")
 
     watch("audio")
-    with BOARD.work("sound", f"Laughter, energy and reactions in {name}"):
+    with BOARD.work("sound", f"Laughter, energy and reactions in {name}") as me:
         wav = audio_for_analysis(video, video.parent / "audio16k.wav")
         signals = compute_signals(info, transcript, wav, comments, meta["duration"])
-    found = [k for k, v in signals["raw"].items() if v is not None and k != "pace"]
+        found = [k for k, v in signals["raw"].items() if v is not None and k != "pace"]
+        BOARD.report(me, f"Measured {', '.join(found) or 'basic audio'} across {fmt_ts(meta['duration'])}"
+                     + (f"; read {len(comments)} viewer comments" if comments else ""))
     rep.info("analysis", f"Audience/audio signals available: {', '.join(found) or 'none'}")
 
     watch("judge")
