@@ -33,10 +33,13 @@ ROLES = [
     ("ranker", "command", "Ranking coordinator", 1, "Scores every category, sets confidence, approves or sends to human review"),
     ("coverage", "command", "Coverage auditor", 1, "Proves every second of the video was reviewed, and names any gap"),
     # ---- intake
-    ("trend", "intake", "Trend scout", 2, "Studies hundreds of short videos to learn what is going viral right now"),
-    ("scout", "intake", "Video scout", 3, "Searches for long-form videos worth clipping, famous creators first"),
+    ("tt_scan", "intake", "TikTok scanner", 2, "Reads TikTok accounts live: views, likes, shares and saves on every recent video, and follows @mentions to new accounts"),
+    ("ig_scan", "intake", "Instagram scanner", 1, "Reads Instagram Reels live from creators and clip pages, pacing itself so Instagram keeps answering"),
+    ("trend", "intake", "Trend analyst", 1, "Scans YouTube Shorts, re-checks hot videos minutes apart to measure views per minute, and learns what is going viral"),
+    ("creators", "intake", "Creator scout", 1, "Ranks the people whose clips go viral and checks who has fresh long videos on YouTube to clip"),
+    ("scout", "intake", "Video scout", 2, "Searches for long-form videos worth clipping, best-ranked creators first"),
     ("download", "intake", "Downloader", 2, "Fetches videos (or just the audio of very long ones)"),
-    ("listen", "intake", "Listener", 3, "Transcribes every word with word-level timing"),
+    ("listen", "intake", "Listener", 2, "Transcribes every word with word-level timing"),
     # ---- full video: mappers (their maps are the shared evidence) ...
     ("scenes", "full", "Scene mapper", 1, "Scans the whole picture at high speed for camera cuts and scene changes"),
     ("sound", "full", "Voice & sound mapper", 1, "Maps speaker turns, loudness, laughter and reactions across the whole video"),
@@ -102,7 +105,7 @@ ROLES = [
     ("hashtags", "production", "Hashtag strategist", 1, "Builds broad, niche and mixed hashtag sets"),
     ("cta", "production", "Call-to-action writer", 1, "Writes honest calls to action"),
     ("thumbs", "production", "Thumbnail designer", 1, "Picks several cover frames"),
-    ("inspector", "production", "Export inspector", 2, "Watches every finished file and fixes problems"),
+    ("inspector", "production", "Export inspector", 1, "Watches every finished file and fixes problems"),
     # ---- publishing
     ("strategist", "publishing", "Audience strategist", 1, "Recommends the best platform and audience for each clip"),
     ("timing", "publishing", "Timing analyst", 1, "Learns the best time to post from your own results"),

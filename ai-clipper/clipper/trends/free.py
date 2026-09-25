@@ -77,6 +77,8 @@ def to_short(info: dict, platform: str) -> dict | None:
         "saves": 0.0,
         "duration": float(info.get("duration") or 0),
         "author": info.get("channel") or info.get("uploader") or "",
+        "author_handle": (info.get("uploader_id") or "").lstrip("@").lower()
+        if str(info.get("uploader_id") or "").startswith("@") else "",
         "author_followers": float(info.get("channel_follower_count") or 0) or None,
         "created_at": _created(info),
         "music": info.get("track") or "",

@@ -1,6 +1,31 @@
 # AI Clipper configuration. Copy to config.yaml and edit.
 # API keys go in .env (see .env.example), never in this file.
 
+# ---------------------------------------------------------------- What you want to clip most
+# The live scan, the creator ranking and the YouTube search all lean toward this; everything else is still
+# covered. You can change it on the Trends page. Names can have aliases: "Gary Vee|GaryVee|Gary Vaynerchuk".
+focus:
+  name: Motivation from successful people
+  weight: 0.6                  # 0 = no preference, 1 = only this niche
+  keywords: [motivation, motivational, mindset, discipline, success, successful, millionaire, billionaire,
+             entrepreneur, business, money, wealth, rich, hustle, grind, invest, investing, ceo, founder,
+             work ethic, self made, sacrifice, habits, winners, ambition]
+  creators: ["Alex Hormozi|Hormozi", "Gary Vee|GaryVee|Gary Vaynerchuk", "Patrick Bet-David|PBD", Grant Cardone,
+             Tony Robbins, Ed Mylett, Tom Bilyeu, Chris Williamson, Iman Gadzhi, Leila Hormozi, Graham Stephan,
+             Steven Bartlett, Codie Sanchez, Lewis Howes, David Goggins, Jay Shetty, Mark Cuban, Myron Golden,
+             Robert Kiyosaki, Daniel Priestley, Les Brown, Warren Buffett, Charlie Munger, Naval Ravikant,
+             Elon Musk, Jeff Bezos, Kevin O'Leary]
+  # YouTube searches for long videos in this niche (the creators above are searched too)
+  searches: [billionaire interview, millionaire mindset podcast, entrepreneur success story interview,
+             self made millionaire podcast, CEO interview success advice]
+  # short-video searches the live scan adds (finds the clip pages that post this niche)
+  short_searches: [billionaire motivation, millionaire mindset, entrepreneur motivation speech,
+                   success motivation speech, rich mindset advice]
+  tiktok_accounts: [garyvee, patrickbetdavid, grantcardone, tonyrobbins, edmylett, tombilyeu, chriswillx,
+                    imangadzhi, jayshetty, leilahormozi, grahamstephan]
+  instagram_accounts: [garyvee, patrickbetdavid, grantcardone, tonyrobbins, edmylett, tombilyeu, chriswillx,
+                       imangadzhi, jayshetty, leilahormozi, grahamstephan, davidgoggins, lewishowes]
+
 # ---------------------------------------------------------------- Step 1
 trends:
   # The run stops if fewer than this many short-form videos were analyzed.
@@ -9,7 +34,7 @@ trends:
   fetch_per_platform: 600
   # Only videos from the last N days count toward the analysis.
   lookback_days: 30
-  reuse_hours: 6                 # a trend study this fresh is reused instead of redone on every click
+  reuse_hours: 2                 # a trend study this fresh is reused instead of redone on every click
   background_refresh: true       # the trend scouts re-study trends in the background while the app is open
   refresh_hours: 4
   # Top fraction (by virality score) labelled "viral"; bottom fraction labelled "flop".
@@ -42,6 +67,35 @@ trends:
     workers: 3                 # parallel requests (keep low: too many makes YouTube block downloads)
     max_details: 120           # new videos per run whose likes/comments/date are read (one request each)
     max_detail_minutes: 4      # time budget for those detail reads
+  # Live internet scan - no keys. Reads TikTok and Instagram accounts (real views, likes, shares, saves),
+  # follows @mentions to new accounts, scans YouTube Shorts, and re-checks hot videos minutes apart to
+  # measure how fast they are gaining views right now. Runs for min_minutes to max_minutes.
+  live:
+    enabled: true
+    min_minutes: 5
+    max_minutes: 10
+    tiktok: true
+    instagram: true
+    youtube_shorts: true
+    tiktok_workers: 2
+    tiktok_interval: 0.9       # seconds between TikTok requests
+    instagram_interval: 7      # seconds between Instagram requests (it limits busy connections)
+    tiktok_accounts: [theovon, impaulsive, fullsendpodcast, jubilee, callherdaddy, bobbialthoff, ishowspeed,
+                      adinross, mrbeast, shawnryanshow, lexfridman, hubermanlab, loganpaul, jakepaul, kaicenat]
+    instagram_accounts: [theovon, impaulsive, fullsendpodcast, jubilee, callherdaddy, bobbialthoff, lexfridman,
+                         hubermanlab, shawnryanshow]
+    follow_mentions: true      # a strong video that tags another account adds that account to the scan
+    mention_min_views: 50000
+    min_followers: 20000       # smaller accounts are skipped (also catches look-alike accounts)
+    max_accounts: 300          # per platform, per scan
+    max_video_age_days: 30
+    recheck_after_minutes: 3   # hot videos are read again after this long to measure views per minute
+    creator_checks: 24         # people the creator scout looks up on YouTube per scan
+    # accounts the scan finds on its own are skipped when their handle contains one of these
+    skip_account_words: [news, cnn, bbc, foxnews, nbc, cbs, msnbc, abcnews, tonight, insideedition, aetv, espn,
+                         nytimes, washingtonpost, wsj, reuters, apnews, skysports, bleacherreport, dailymail,
+                         movieclips, trailers, netflix, hbomax, primevideo]   # movie/TV scenes: copyright
+    fresh_minutes: 90          # a scan this recent is reused by Get clips (the background scan keeps it fresh)
   # Also load any .json / .csv exports dropped in this folder (any source works).
   import_dir: data/trend_imports
 

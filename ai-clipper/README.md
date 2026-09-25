@@ -2,14 +2,22 @@
 
 A fully automated AI clipper. You press one button, **GET CLIPS**, and it:
 
-1. **Analyzes what goes viral right now.** It pulls 350+ fresh short-form videos (YouTube Shorts
-   for free; TikTok and Instagram Reels too if you add the optional Apify token) and scores each one
-   for virality: views, growth speed, reach beyond the creator's followers, engagement, and
-   shares/saves. It then learns which hooks, lengths, words, hashtags and posting times separate
-   viral videos from flops. The run stops if fewer than 350 videos are available.
-2. **Finds long-form YouTube videos and watches all of them.** It checks the channels you watch
-   in real time (new uploads show up within minutes), YouTube's most-popular chart, and
-   searches for long, high-view videos. It ranks them by growth, size and trend fit. For the
+1. **Scans the internet live for what goes viral right now (5-10 minutes, no keys).** TikTok
+   scanners read accounts with the real numbers for every recent video (views, likes, comments,
+   shares, saves), an Instagram scanner reads Reels, and the trend analyst scans YouTube Shorts.
+   The scan starts from big creators and your focus, follows every account a strong video tags,
+   and hands the clip channels it finds on YouTube Shorts to the TikTok and Instagram scanners.
+   Hot videos are read again minutes later to measure how many views they gain **per minute right
+   now**. A creator scout ranks the people whose clips go viral and checks who has fresh long
+   videos on YouTube to clip. Then it learns which hooks, lengths, words, hashtags and posting
+   times separate viral videos from flops. The run stops if fewer than 350 videos are available.
+   Set **your focus** on the Trends page (default: motivation from successful people). The scan,
+   the creator ranking and the YouTube search lean toward it, and other niches are still covered.
+2. **Finds long-form YouTube videos and watches all of them.** It searches first for the people
+   the creator scout ranked highest, then your focus list and other big creators. It also checks
+   the channels you watch in real time (new uploads show up within minutes), YouTube's
+   most-popular chart, and general searches for long, high-view videos. It ranks them by growth,
+   size, trend fit and your focus. For the
    top picks it downloads the full video, transcribes every word, and reads:
    - YouTube's **"most replayed" heatmap** (real viewer data),
    - **timestamps viewers quote in comments** ("23:14 had me dying"),
@@ -66,7 +74,8 @@ To build it yourself on Windows: `pip install -r requirements.txt pyinstaller` t
 4. **Configure.** Copy `config.example.yaml` to `config.yaml`. The main settings:
    - `discovery.watch_channels`: YouTube channel IDs to watch in real time (they start with `UC`).
    - `discovery.search_queries`: the kinds of long videos to look for.
-   - `trends.tiktok.hashtags` / `trends.instagram.hashtags`: the niche to study.
+   - `focus`: the niche you want most, and how much to lean into it (also editable on the Trends page).
+   - `trends.live`: the live scan (minutes, accounts to always read, how many accounts to follow).
    - `editing.default_level`: your usual editing level.
 5. **Your own assets (optional)** for the professional and extreme levels. When these folders are empty,
    built-in royalty-free music, a whoosh and animated b-roll are used instead:
@@ -115,6 +124,8 @@ In `config.yaml` → `analysis`:
   automatically retries with the YouTube login from Firefox, Edge, Chrome, Brave, Opera or Vivaldi.
   Chrome/Edge lock their cookie file while open, so close them fully or use Firefox. You can also set
   `analysis.cookies_from_browser: firefox` (or point `cookies_file` at an exported cookies.txt).
+- **Instagram "asked to slow down"**: Instagram limits how often one connection can read profiles.
+  The scanner waits and tries again, and TikTok and YouTube keep scanning in the meantime.
 - **"Only N short videos available"**: check your internet connection, add more channels under
   `trends.free.youtube_channels`, or just run again (collected videos add up). You can also drop `.json` / `.csv` exports into
   `data/trend_imports/` (columns such as `id, caption, views, likes, comments, shares, duration,
@@ -136,8 +147,9 @@ In `config.yaml` → `analysis`:
 - Reposting someone else's video needs their permission. Many big creators run official
   clipping programs, and those creators are the best ones to target. Each caption includes a
   credit line to the original video.
-- Collecting TikTok/Instagram data runs through Apify under its terms, and downloading from
-  YouTube is subject to YouTube's terms. Use this for your own or permitted content.
+- The live scan reads public TikTok, Instagram and YouTube pages at a slow, steady pace, and the
+  optional Apify collection runs under Apify's terms. Each platform's terms apply, and downloading
+  from YouTube is subject to YouTube's terms. Use this for your own or permitted content.
 - Posting stays manual: you review each clip before it goes out.
 
 ## Tests
@@ -152,7 +164,8 @@ captions, face-track planning, real ffmpeg renders, the web API, and a full end-
 
 ```
 clipper/
-  trends/      step 1 - free YouTube Shorts collector, optional Apify, virality scoring, text model
+  trends/      step 1 - live scan (TikTok, Instagram, YouTube Shorts), creator scout, your focus,
+               optional Apify, virality scoring, text model
   discovery/   step 2a - YouTube API, RSS watcher, yt-dlp fallback, ranking
   analysis/    step 2b - download, whisper transcript, audience signals, built-in judge (+ optional Claude)
   editing/     step 3 - levels, jump cuts, face tracking (YuNet), ASS captions, ffmpeg render

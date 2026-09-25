@@ -25,6 +25,7 @@ from ..editing import LEVEL_NAMES
 from ..events import Reporter
 from ..pipeline import LAYER, MAX_CLIPS, Pipeline, delete_clip, list_outputs
 from ..publish import PostingService
+from ..trends import focus as focus_mod
 from ..trends import run_trend_analysis
 
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
@@ -74,6 +75,17 @@ class CookiesRequest(BaseModel):
     text: str
 
 
+class FocusRequest(BaseModel):
+    name: str | None = None
+    weight: float | None = None
+    keywords: list[str] | None = None
+    creators: list[str] | None = None
+    searches: list[str] | None = None
+    short_searches: list[str] | None = None
+    tiktok_accounts: list[str] | None = None
+    instagram_accounts: list[str] | None = None
+
+
 class ClipRequest(BaseModel):
     source: str
     level: str | None = None
@@ -87,29 +99,40 @@ def create_app(cfg: Config) -> FastAPI:
 
     posting = PostingService(cfg, pipe.db, rep, BOARD)
 
+    scan_now = threading.Event()
+    scan_roles = ("trend", "tt_scan", "ig_scan", "creators")
+
+    def scan_beat(duty: str = "", reason: str | None = None) -> None:
+        for role in scan_roles:
+            BOARD.beat(role, duty, reason=reason)
+
     def trend_scout() -> None:
-        """Trend scouts, 24/7: keep the trend study fresh so a click starts straight at finding videos."""
-        stop.wait(20)
+        """Trend scouts, 24/7: keep the live scan fresh so a click starts straight at finding videos."""
+        scan_now.wait(20)
         while not stop.is_set():
             t = cfg["trends"]
             fresh = pipe.fresh_trends()
-            if fresh:
+            forced = scan_now.is_set()
+            if fresh and not forced:
                 age = (time.time() - fresh["created_at"]) / 60
-                BOARD.beat("trend", f"Trends fresh ({fresh.get('n_videos', 0)} shorts studied {age:.0f} min ago) - "
-                                    f"re-study in {max(0, float(t.get('reuse_hours', 6)) * 60 - age):.0f} min")
-            elif not t.get("background_refresh", True):
-                BOARD.beat("trend", "", reason="Background refresh is off (trends.background_refresh)")
-            elif pipe.running:
-                BOARD.beat("trend", "The current run is studying trends")
+                keep = float(t.get("reuse_hours", 6)) * 60
+                if t.get("live", {}).get("enabled"):
+                    keep = min(keep, float(t["live"].get("fresh_minutes", 90)))
+                scan_beat(f"Last scan {age:.0f} min ago ({fresh.get('n_videos', 0):,} short videos) - next live scan "
+                          f"in {max(0, keep - age):.0f} min")
+            elif not t.get("background_refresh", True) and not forced:
+                scan_beat("", reason="Background scanning is off (trends.background_refresh) - press Scan now")
+            elif pipe.running and not forced:
+                scan_beat("The current run is scanning")
             else:
+                scan_now.clear()
                 try:
-                    with BOARD.work("trend", "Studying what goes viral right now (background)"):
-                        run_trend_analysis(cfg, pipe.db, rep)
+                    run_trend_analysis(cfg, pipe.db, rep)
                 except Exception as exc:
-                    BOARD.beat("trend", "", reason=f"Trend study failed ({str(exc)[:80]}) - retrying in 10 min")
-                    stop.wait(600)
+                    scan_beat("", reason=f"Live scan failed ({str(exc)[:80]}) - retrying in 10 min")
+                    scan_now.wait(600)
                     continue
-            stop.wait(60)
+            scan_now.wait(60)
 
     def video_scout() -> None:
         """Video scouts, 24/7: keep a queue of the most promising long videos ready for the next click."""
@@ -349,6 +372,49 @@ def create_app(cfg: Config) -> FastAPI:
             return {"stopped": False}
         pipe.stop()
         return {"stopped": True}
+
+    @app.get("/api/scan")
+    def scan_status() -> dict:
+        """The live internet scan: what it is reading right now, or what the last one found."""
+        from ..trends import CURRENT, SCAN_LOCK
+
+        cur = CURRENT.get("scan")
+        live = None
+        if cur is not None and cur.running:
+            live = {**cur.stats(), "hot": cur.viral_now(20), "creators": [
+                {k: v for k, v in c.items() if k != "key"} for c in (cur.creators or [])[:20]]}
+        profile = pipe.db.latest_profile()
+        last = None
+        if profile and profile.get("live"):
+            last = {**profile["live"], "created_at": profile["created_at"], "n_videos": profile.get("n_videos", 0)}
+        lv = cfg["trends"].get("live", {})
+        return {"running": SCAN_LOCK.locked(), "live": live, "last": last, "enabled": bool(lv.get("enabled")),
+                "min_minutes": lv.get("min_minutes", 5), "max_minutes": lv.get("max_minutes", 10)}
+
+    @app.post("/api/scan")
+    def scan_start() -> dict:
+        from ..trends import SCAN_LOCK
+
+        if SCAN_LOCK.locked():
+            return {"started": False, "running": True}
+        scan_now.set()
+        return {"started": True, "running": True}
+
+    @app.get("/api/focus")
+    def focus_get() -> dict:
+        return focus_mod.load(cfg)
+
+    @app.post("/api/focus")
+    def focus_set(req: FocusRequest) -> dict:
+        changes = {k: v for k, v in req.model_dump().items() if v is not None}
+        if "weight" in changes:
+            changes["weight"] = max(0.0, min(1.0, float(changes["weight"])))
+        for k, v in list(changes.items()):
+            if isinstance(v, list):
+                changes[k] = [str(x).strip()[:80] for x in v if str(x).strip()][:80]
+            elif isinstance(v, str):
+                changes[k] = v.strip()[:80]
+        return focus_mod.save(cfg, changes)
 
     @app.get("/api/agents/{agent_id}")
     def agent_detail(agent_id: str) -> dict:

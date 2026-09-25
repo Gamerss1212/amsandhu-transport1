@@ -1,6 +1,7 @@
 """Step 1: learn what goes viral in short-form video (YouTube Shorts, TikTok, Instagram)."""
 from __future__ import annotations
 
+import threading
 import time
 
 from ..config import Config
@@ -15,12 +16,47 @@ class NotEnoughTrendData(RuntimeError):
     pass
 
 
-def run_trend_analysis(cfg: Config, db: Database, rep: Reporter) -> dict:
+SCAN_LOCK = threading.Lock()   # one live scan at a time (a click waits for the background scan to finish)
+CURRENT: dict = {"scan": None}  # the scan running right now, for the live view
+
+
+def run_trend_analysis(cfg: Config, db: Database, rep: Reporter, board=None) -> dict:
+    if not SCAN_LOCK.acquire(blocking=False):
+        rep.info("trends", "A live scan is already running - waiting for it to finish and using its results")
+        with SCAN_LOCK:
+            pass
+        latest = db.latest_profile()
+        if latest and time.time() - latest.get("created_at", 0) < 900:
+            return latest
+        SCAN_LOCK.acquire()
+    try:
+        return _run(cfg, db, rep, board)
+    finally:
+        CURRENT["scan"] = None
+        SCAN_LOCK.release()
+
+
+def _run(cfg: Config, db: Database, rep: Reporter, board=None) -> dict:
     tcfg = cfg["trends"]
     fresh: list[dict] = []
     since = time.time() - tcfg["lookback_days"] * 86400
+    live = None
 
-    if tcfg["free"]["enabled"]:
+    if tcfg.get("live", {}).get("enabled"):
+        from ..agents import BOARD
+        from .live import LiveScan
+
+        known = {v["video_id"] for v in db.load_short_videos(since)}
+        scan = LiveScan(cfg, rep=rep, board=board or BOARD, known=known)
+        CURRENT["scan"] = scan
+        live = scan.run()
+        st = live["stats"]
+        per = ", ".join(f"{v['videos']} {k.replace('_', ' ')}" for k, v in st["platforms"].items() if v["videos"])
+        rep.info("trends", f"Live scan done in {st['elapsed'] // 60}:{st['elapsed'] % 60:02d}: {st['videos']:,} videos "
+                           f"from {st['accounts']} accounts ({per or 'nothing answered'}), {st['measured']} re-measured "
+                           "for views per minute")
+        fresh += live["videos"]
+    elif tcfg["free"]["enabled"]:
         known = {v["video_id"] for v in db.load_short_videos(since)}
         got = collect_free(tcfg["free"], known,
                            progress=lambda f, m="": rep.progress("trends", 0.8 * f, m),
@@ -56,8 +92,12 @@ def run_trend_analysis(cfg: Config, db: Database, rep: Reporter) -> dict:
             "connection, add more channels under trends.free.youtube_channels in config.yaml, or run "
             "again (videos from earlier runs are kept and add up).")
 
-    rep.progress("trends", 0.8, "Learning what makes videos go viral...")
+    rep.progress("trends", 0.9, "Learning what makes videos go viral...")
     profile = build_profile(videos, tcfg["viral_top_fraction"], tcfg["flop_bottom_fraction"])
+    if live:
+        profile["live"] = {"viral_now": live["viral_now"], "creators": live["creators"],
+                           "accounts": live["accounts"][:60], "stats": live["stats"], "notes": live["notes"],
+                           "focus": live["focus"]}
     profile["playbook"] = playbook_text(profile)
     db.save_profile(profile)
 

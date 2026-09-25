@@ -254,6 +254,40 @@
   .agentbar button { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: #0b0b10; color: var(--muted); font-size: 12.5px; }
   .agentbar button.on { color: #fff; border-color: var(--accent); background: #a855f71c; }
   .agentbar input { flex: 1; min-width: 160px; padding: 7px 12px; border-radius: 99px; border: 1px solid var(--line); background: #0b0b10; color: var(--text); }
+  .scanbtn { padding: 12px 22px; border-radius: 99px; border: 0; font-weight: 800; font-size: 15px; color: #fff; background: linear-gradient(135deg, var(--accent2), var(--accent)); box-shadow: 0 8px 30px var(--glow); cursor: pointer; }
+  .scanbtn:disabled { opacity: .55; cursor: default; box-shadow: none; }
+  .scanhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+  .scanchip { font-size: 12.5px; font-weight: 750; padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line2); color: var(--muted); }
+  .scanchip.run { color: #fff; border-color: var(--accent); background: #a855f722; animation: throb 1.6s ease-in-out infinite; }
+  .scanbar { position: relative; height: 8px; border-radius: 9px; background: #ffffff0d; margin: 16px 0 6px; overflow: visible; }
+  .scanbar i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 9px; background: linear-gradient(90deg, var(--accent2), var(--accent3)); transition: width .8s; }
+  .scanbar b { position: absolute; top: -4px; width: 2px; height: 16px; background: #fff8; display: none; }
+  .splats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+  .splat { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: #ffffff05; min-width: 0; }
+  .splat h3 { margin: 0 0 4px; font-size: 14px; } .splat .big { font-size: 24px; font-weight: 850; letter-spacing: -.02em; }
+  .splat .hint { font-size: 12px; } .splat.warn { border-color: #f59e0b66; } .splat.bad { border-color: #f43f5e66; }
+  .scannow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .scannow span { font-size: 12px; padding: 4px 10px; border-radius: 99px; background: #a855f71a; border: 1px solid #a855f744; color: #eadcff; }
+  .scannotes { margin-top: 8px; font-size: 12.5px; color: var(--muted); } .scannotes div { padding: 2px 0; }
+  .seg2 { display: flex; gap: 4px; } .seg2 button { padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+  .seg2 button.on { color: #fff; border-color: var(--accent); background: #a855f71c; }
+  .hotlist, .crlist { margin-top: 12px; }
+  .hot { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .hot .rate { font-weight: 850; font-size: 17px; letter-spacing: -.02em; } .hot .rate small { display: block; font-size: 11px; font-weight: 650; color: var(--faint); }
+  .hot .rate.now { color: var(--accent3); } .hot a { color: var(--text); text-decoration: none; } .hot a:hover { text-decoration: underline; }
+  .hot .meta2 { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .pbadge { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 6px; margin-right: 6px; background: #ffffff12; color: #ddd; }
+  .pbadge.tiktok { background: #25f4ee22; color: #7ff9f5; } .pbadge.instagram { background: #e1306c26; color: #ff9cc0; } .pbadge.youtube_shorts { background: #ff000022; color: #ff8a8a; }
+  .cr { padding: 12px 0; border-top: 1px solid var(--line); } .cr .top { display: flex; align-items: center; gap: 10px; }
+  .cr .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #ffffff0d; font-size: 12px; font-weight: 800; flex: none; }
+  .cr .nm { font-weight: 800; flex: 1; min-width: 0; } .cr .sc { font-weight: 850; color: var(--accent3); }
+  .cr .tag { font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 6px; background: #a855f726; color: #e9d5ff; margin-left: 6px; }
+  .cr .tag.new { background: #22c55e22; color: #86efac; }
+  .cr ul { margin: 6px 0 0 36px; padding: 0; font-size: 12.5px; color: var(--muted); } .cr li { margin: 2px 0; }
+  .cr .yt { margin: 4px 0 0 36px; font-size: 12.5px; } .cr .yt a { color: var(--accent3); }
+  #focusCard .field input:not([type=range]), #focusCard .field textarea { display: block; width: 100%; margin-top: 5px; padding: 9px 12px; border-radius: 11px; font-size: 13.5px; resize: vertical; }
+  #focusCard .field input[type=range] { display: block; width: 100%; margin-top: 8px; padding: 0; border: 0; background: none; accent-color: var(--accent); }
+  @media (max-width: 760px) { .splats { grid-template-columns: minmax(0, 1fr); } .hot { grid-template-columns: 78px minmax(0, 1fr); } }
   .agentfeed { margin-top: 14px; border: 1px solid var(--line); border-radius: 16px; background: #07070b; padding: 12px 14px; max-height: 300px; overflow: auto; font-size: 12.5px; }
   .agentfeed h3 { margin: 0 0 8px; font-size: 14px; } .agentfeed .fl { display: grid; grid-template-columns: 88px minmax(0, 190px) minmax(0, 1fr); gap: 10px; padding: 3px 0; border-top: 1px solid #ffffff08; animation: pop .3s both; }
   .agentfeed .fl time { color: var(--faint); } .agentfeed .fl b { color: var(--accent3); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -452,7 +486,7 @@
           <button data-src="mine" role="tab">Use my videos</button>
         </div>
         <div class="note" id="autoNote"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <span>Studies <b id="minVideos">350</b>+ short videos for what's going viral, searches famous creators first (podcasts, streamers, talk shows), and takes at most 2 clips from any one video so every batch comes from many videos.</span></div>
+          <span>Scans TikTok, Instagram and YouTube Shorts live for 5-10 minutes (<b id="minVideos">350</b>+ short videos; a scan from the last 90 minutes is reused), searches the people whose clips go viral right now first - leaning toward your focus - and takes at most 2 clips from any one video.</span></div>
         <textarea id="src" hidden placeholder="Paste YouTube links or video file paths - one per line. Any length works - even 200+ hour streams.&#10;https://www.youtube.com/watch?v=...&#10;C:\Users\you\Videos\my podcast.mp4"></textarea>
 
         <div class="label">2 · How many clips</div>
@@ -560,9 +594,39 @@
 
   <!-- ===================================================== TRENDS -->
   <section class="page" id="page-trends">
-    <div class="ptitle"><div><h1>What's going viral</h1><div class="sub" id="trendWhen">The trend scouts keep this fresh in the background.</div></div></div>
-    <div class="grid2"><div class="card" id="trend"><div class="empty">No trend study yet - the trend scouts are on it.</div></div>
-      <div class="card"><h2>New uploads</h2><div class="hint">From channels you watch (add them in config.yaml).</div><ul class="uploads" id="uploads"></ul></div></div>
+    <div class="ptitle"><div><h1>What's going viral</h1><div class="sub" id="trendWhen">A live scan of TikTok, Instagram and YouTube Shorts - real views, likes and shares, measured right now.</div></div>
+      <div class="grow"></div><button class="scanbtn" id="scanBtn">Scan now</button></div>
+    <div class="card scanbox" id="scanBox">
+      <div class="scanhead"><h2>Live internet scan</h2><span class="scanchip" id="scanChip">Not run yet</span></div>
+      <div class="hint" id="scanSub">Reads TikTok and Instagram accounts (big creators, your focus, every account a strong video tags) and YouTube Shorts for 5-10 minutes, then re-reads the hottest videos to measure how many views they gain per minute.</div>
+      <div class="scanbar"><i id="scanFill"></i><b id="scanMin" title="minimum scan time"></b></div>
+      <div class="splats" id="scanPlats"></div>
+      <div class="scannow" id="scanNow"></div>
+      <div class="scannotes" id="scanNotes"></div>
+    </div>
+    <div class="grid2" style="margin-top:20px">
+      <div class="card"><div class="scanhead"><h2>Going viral right now</h2><div class="seg2" id="hotSeg"><button data-f="you" class="on">For you</button><button data-f="focus">Your focus</button><button data-f="all">Everything</button></div></div>
+        <div class="hint">Views per minute: <b>now</b> = measured minutes apart during the scan · <b>avg</b> = average since it was posted.</div>
+        <div class="hotlist" id="hotList"><div class="empty">Press Scan now - the first results appear within a minute.</div></div></div>
+      <div class="card"><h2>Creators worth clipping</h2>
+        <div class="hint">Ranked by how clips of them perform right now, whether YouTube has fresh long videos of them, and your focus. The video scouts search the top ones first.</div>
+        <div class="crlist" id="creatorList"><div class="empty">Appears after the first scan.</div></div></div>
+    </div>
+    <div class="grid2" style="margin-top:20px">
+      <div class="card" id="focusCard"><h2>Your focus</h2>
+        <div class="hint">What you want to clip most. The scan, the creator ranking and the YouTube search lean toward it - everything else is still covered.</div>
+        <label class="field">Niche<input id="fName" maxlength="80" placeholder="e.g. Motivation from successful people"></label>
+        <label class="field">How much to lean in: <b id="fWeightTxt">60%</b><input id="fWeight" type="range" min="0" max="100" step="5" value="60"></label>
+        <label class="field">People (comma separated; aliases with |)<textarea id="fPeople" rows="3" spellcheck="false"></textarea></label>
+        <label class="field">Words that mean your niche<textarea id="fWords" rows="2" spellcheck="false"></textarea></label>
+        <label class="field">TikTok accounts to always scan<input id="fTT" spellcheck="false" placeholder="garyvee, grantcardone"></label>
+        <label class="field">Instagram accounts to always scan<input id="fIG" spellcheck="false" placeholder="garyvee, tonyrobbins"></label>
+        <div class="row" style="padding:0;margin-top:12px"><button class="btn primary" id="fSave">Save focus</button><span class="hint" id="fSaved" style="align-self:center"></span></div></div>
+      <div>
+        <div class="card" id="trend"><div class="empty">No trend study yet - the trend scouts are on it.</div></div>
+        <div class="card" style="margin-top:20px"><h2>New uploads</h2><div class="hint">From channels you watch (add them in config.yaml).</div><ul class="uploads" id="uploads"></ul></div>
+      </div>
+    </div>
   </section>
 </main>
 </div>
@@ -830,6 +894,7 @@ function finish(title, cls, msg) {
 }
 function handle(ev, live) {
   if (ev.kind === "watch") { onWatch(ev.data); return; }
+  if (ev.kind === "scan") { if (live && !(ev.data && ev.data.final)) scanRunning = true; return; }
   if (ev.message && ev.kind === "log" && /^Step 1\/3|Clipping \d+ video/.test(ev.message)) { resetSteps(/^Clipping/.test(ev.message)); started = ev.ts; setRunning(true); }
   const box = $("s-" + ev.step);
   if (box && running) {
@@ -1071,6 +1136,80 @@ function renderTrend(t) {
     ${lengths.length ? `<div class="label">Best lengths</div><div class="words">${lengths.map((d) => `<span>${esc(d.feature)} · ×${d.lift.toFixed(1)}</span>`).join("")}</div>` : ""}
     ${t.terms.length ? `<div class="label">Trending words</div><div class="words">${t.terms.slice(0, 15).map((w) => `<span>${esc(w)}</span>`).join("")}</div>` : ""}`;
 }
+// ---------------- live internet scan ----------------
+let hotFilter = "you", lastScan = null, scanRunning = false;
+const fmtN = (n) => { n = +n || 0; const f = (v, d) => (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + d;
+  return n >= 1e9 ? f(n / 1e9, "B") : n >= 1e6 ? f(n / 1e6, "M") : n >= 1e3 ? f(n / 1e3, "K") : Math.round(n) + ""; };
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const agoTxt = (t) => { const m = Math.max(0, (Date.now() / 1000 - t) / 60); return m < 60 ? `${Math.round(m)} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+async function loadScan() {
+  let d; try { d = await (await fetch("/api/scan")).json(); } catch (e) { return; }
+  lastScan = d; renderScan(d);
+}
+function renderScan(d) {
+  if (!d) return;
+  if (scanRunning && !d.running) loadStatus();  // a scan just finished: refresh the trend study card
+  scanRunning = d.running;
+  const L = d.live, last = d.last, st = L || (last && last.stats), chip = $("scanChip");
+  $("scanBtn").disabled = d.running || !d.enabled; $("scanBtn").textContent = d.running ? "Scanning..." : "Scan now";
+  chip.classList.toggle("run", !!d.running);
+  chip.textContent = !d.enabled ? "Off (trends.live.enabled in config.yaml)" : L ? `Scanning ${mmss(L.elapsed)} · runs ${d.min_minutes}-${d.max_minutes} min`
+    : d.running ? "Starting..." : last ? `Last scan ${agoTxt(last.created_at)}` : "Not run yet";
+  const max = d.max_minutes * 60, min = d.min_minutes * 60;
+  $("scanFill").style.width = L ? Math.min(100, 100 * L.elapsed / max) + "%" : last ? "100%" : "0";
+  $("scanMin").style.display = "block"; $("scanMin").style.left = `calc(${(100 * min / max).toFixed(1)}% - 1px)`;
+  $("scanPlats").innerHTML = st ? ["tiktok", "instagram", "youtube_shorts"].filter((p) => st.platforms && st.platforms[p]).map((p) => { const x = st.platforms[p];
+    return `<div class="splat ${x.blocked ? "bad" : x.waiting ? "warn" : ""}"><h3>${esc(PLATFORM[p])}</h3><div class="big">${fmtN(x.videos)}</div>
+      <div class="hint">videos${p !== "youtube_shorts" ? ` from ${x.accounts} accounts${x.queued && L ? ` · ${x.queued} queued` : ""}` : x.state && L ? ` · ${esc(String(x.state).slice(0, 60))}` : ""}</div>
+      ${x.blocked ? `<div class="hint" style="color:#ffb4c2">${esc(x.blocked)}</div>` : x.waiting && L ? `<div class="hint" style="color:#fcd34d">Asked to slow down - back in ${x.waiting}s</div>` : ""}</div>`; }).join("") : "";
+  $("scanNow").innerHTML = L && L.now && L.now.length ? L.now.map((t) => `<span>${esc(t)}</span>`).join("") : "";
+  $("scanNotes").innerHTML = st ? `<div><b>${fmtN(st.videos)}</b> videos · <b>${st.accounts}</b> accounts · <b>${st.measured}</b> videos re-measured for views per minute · <b>${st.mentions_followed}</b> accounts found through @mentions</div>`
+    + (st.notes || []).slice(-3).map((n) => `<div>${esc(n)}</div>`).join("") : "";
+  if (last) $("trendWhen").textContent = `Last live scan ${new Date(last.created_at * 1000).toLocaleString()}${last.focus ? ` · focus: ${last.focus}` : ""} · the trend scouts keep it fresh in the background`;
+  renderHot(L ? L.hot : last ? last.viral_now : []);
+  renderCreators(L && L.creators && L.creators.length ? L.creators : last ? last.creators : []);
+}
+function renderHot(rows) {
+  const list = (rows || []).filter((r) => hotFilter === "all" || (hotFilter === "you" ? r.for_you !== false : r.focus_fit >= 0.5));
+  $("hotList").innerHTML = list.length ? list.slice(0, 20).map((r) => `<div class="hot"><div class="rate ${r.measured ? "now" : ""}">${fmtN(r.per_min)}<small>views/min · ${r.measured ? "now" : "avg"}</small></div>
+    <div><span class="pbadge ${esc(r.platform)}">${esc(PLATFORM[r.platform] || r.platform)}</span><a href="${esc(r.url || "#")}" target="_blank" rel="noopener">${esc(r.caption || "(no caption)")}</a>
+    <div class="meta2">@${esc(r.author)} · ${fmtN(r.views)} views · ${r.age_hours < 48 ? Math.round(r.age_hours) + " h" : Math.round(r.age_hours / 24) + " days"} old${r.shares ? ` · ${fmtN(r.shares)} shares` : ""}</div></div></div>`).join("")
+    : `<div class="empty">${hotFilter === "focus" ? "Nothing from your focus among the fastest-growing videos yet." : "Press Scan now - the first results appear within a minute."}</div>`;
+}
+function renderCreators(rows) {
+  $("creatorList").innerHTML = rows && rows.length ? rows.slice(0, 15).map((c, i) => `<div class="cr"><div class="top"><span class="n">${i + 1}</span>
+    <span class="nm">${esc(c.name)}${c.focus_listed ? `<span class="tag">Your focus</span>` : ""}${c.source === "found in viral clips" ? `<span class="tag new">Found by the scan</span>` : ""}</span><span class="sc" title="score out of 100">${Math.round(c.score)}</span></div>
+    <ul>${(c.reasons || [`${c.clips} clips · ${fmtN(c.clip_views)} views`]).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    ${c.youtube && c.youtube.best ? `<div class="yt">Best long video to clip: <a href="${esc(c.youtube.best.url)}" target="_blank" rel="noopener">${esc(c.youtube.best.title)}</a> · ${fmtN(c.youtube.best.views)} views</div>` : ""}</div>`).join("")
+    : `<div class="empty">Appears after the first scan.</div>`;
+}
+$("scanBtn").onclick = async () => {
+  $("scanBtn").disabled = true;
+  try { await fetch("/api/scan", {method: "POST"}); } catch (e) { $("scanBtn").disabled = false; return; }
+  toast("Live scan started - it runs 5 to 10 minutes"); scanRunning = true; setTimeout(loadScan, 1500);
+};
+$("hotSeg").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; hotFilter = b.dataset.f;
+  $("hotSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); renderScan(lastScan); };
+setInterval(() => { if (scanRunning || $("page-trends").classList.contains("on")) loadScan(); }, 3000);
+
+// ---------------- your focus ----------------
+const splitList = (v) => v.split(/[,\n]+/).map((x) => x.trim()).filter(Boolean);
+async function loadFocus() {
+  let f; try { f = await (await fetch("/api/focus")).json(); } catch (e) { return; }
+  $("fName").value = f.name || ""; $("fWeight").value = Math.round((f.weight || 0) * 100); $("fWeightTxt").textContent = $("fWeight").value + "%";
+  $("fPeople").value = (f.creators || []).join(", "); $("fWords").value = (f.keywords || []).join(", ");
+  $("fTT").value = (f.tiktok_accounts || []).join(", "); $("fIG").value = (f.instagram_accounts || []).join(", ");
+}
+$("fWeight").oninput = () => { $("fWeightTxt").textContent = $("fWeight").value + "%"; };
+$("fSave").onclick = async () => {
+  const handles = (v) => splitList(v).map((h) => h.replace(/^@/, "").toLowerCase());
+  const body = {name: $("fName").value, weight: $("fWeight").value / 100, creators: splitList($("fPeople").value), keywords: splitList($("fWords").value),
+    tiktok_accounts: handles($("fTT").value), instagram_accounts: handles($("fIG").value)};
+  let ok = false; try { ok = (await fetch("/api/focus", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})).ok; } catch (e) {}
+  $("fSaved").textContent = ok ? "Saved - the next scan and search use it" : "Could not save";
+  if (ok) loadFocus();
+};
+
 async function loadUploads() {
   const ups = await (await fetch("/api/uploads")).json();
   $("uploads").innerHTML = ups.length ? ups.slice(0, 10).map((u) => `<li>${esc(u.title)}<div class="hint">${esc(u.channel)} · ${new Date(u.published * 1000).toLocaleString()}</div></li>`).join("") : `<li class="hint">No watched channels yet.</li>`;
@@ -1100,7 +1239,7 @@ $("ytForget").onclick = async () => { renderYt(await (await fetch("/api/youtube-
 
 // ---------------- start ----------------
 go((location.hash || "#create").slice(1));
-loadStatus(); loadClips(); loadUploads(); listen(); loadAgents(); loadPosting();
+loadStatus(); loadClips(); loadUploads(); listen(); loadAgents(); loadPosting(); loadScan(); loadFocus();
 setInterval(loadAgents, 1500); setInterval(loadPosting, 15000); setInterval(loadUploads, 60000);
 </script>
 </body>

@@ -273,6 +273,12 @@ def playbook_text(profile: dict) -> str:
         lines.append("Words/topics linked to flops: " + ", ".join(profile["top_flop_terms"][:15]))
     if profile.get("hashtag_lift"):
         lines.append("Best hashtags: " + ", ".join(r["feature"] for r in profile["hashtag_lift"][:15]))
+    live = profile.get("live") or {}
+    if live.get("viral_now"):
+        lines.append("Gaining views fastest right now (live scan):")
+        lines += [f"  - ({r['per_min']:,.0f} views/min, {r['platform']}) {r['caption']}" for r in live["viral_now"][:10]]
+    if live.get("creators"):
+        lines.append("People whose clips go viral now: " + ", ".join(c["name"] for c in live["creators"][:12]))
     if profile.get("viral_examples"):
         lines.append("Top viral captions right now:")
         lines += [f"  - ({int(e['views']):,} views) {e['caption']}" for e in profile["viral_examples"][:15]]

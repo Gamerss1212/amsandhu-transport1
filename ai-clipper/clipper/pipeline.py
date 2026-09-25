@@ -86,7 +86,10 @@ class Pipeline:
     def fresh_trends(self) -> dict | None:
         """The latest trend study, if the trend scouts made it recently enough to reuse."""
         profile = self.db.latest_profile()
-        hours = float(self.cfg["trends"].get("reuse_hours", 6))
+        t = self.cfg["trends"]
+        hours = float(t.get("reuse_hours", 6))
+        if t.get("live", {}).get("enabled"):  # live data goes stale fast
+            hours = min(hours, float(t["live"].get("fresh_minutes", 90)) / 60)
         if profile and time.time() - profile.get("created_at", 0) < hours * 3600:
             return profile
         return None
@@ -163,10 +166,15 @@ class Pipeline:
                 rep.info("trends", f"Step 1/3 - using the trend study the trend scouts made {age:.0f} min ago "
                                    f"({profile.get('n_videos', 0)} short videos)")
             else:
-                rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
-                                   "for what goes viral right now")
-                with BOARD.work("trend", "Studying what goes viral right now"):
-                    profile = run_trend_analysis(self.cfg, self.db, rep)
+                lv = self.cfg["trends"].get("live", {})
+                if lv.get("enabled"):
+                    rep.info("trends", f"Step 1/3 - live internet scan of TikTok, Instagram and YouTube Shorts "
+                                       f"({lv.get('min_minutes', 5)}-{lv.get('max_minutes', 10)} min): what is going "
+                                       "viral right now, and whose clips")
+                else:
+                    rep.info("trends", f"Step 1/3 - studying {self.cfg['trends']['min_videos']}+ short videos "
+                                       "for what goes viral right now")
+                profile = run_trend_analysis(self.cfg, self.db, rep)
             # ---- Step 2: find long-form videos and watch them fully
             queued = self.queue_fresh()
             if queued and len(queued) >= min(max_videos, 6):

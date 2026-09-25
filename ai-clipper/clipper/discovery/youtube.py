@@ -24,6 +24,7 @@ import requests
 
 from .. import ytdl
 from ..events import Event
+from ..trends import focus as focus_mod
 from ..trends.analyzer import pct_rank, trend_fit
 
 API = "https://www.googleapis.com/youtube/v3"
@@ -224,13 +225,34 @@ def is_famous(channel: str, famous: list[str]) -> bool:
                              for f in famous if len(f) > 3)
 
 
+def creator_queries(profile: dict | None, focus: dict, famous: list[str], n: int = 10,
+                    rng: random.Random | None = None) -> tuple[list[str], list[str]]:
+    """YouTube searches for the people worth clipping: the creator scout's best-ranked people first (the ones
+    whose clips go viral now and who have long videos), then your focus list, then other big creators."""
+    rng = rng or random.Random()
+    w = focus.get("weight", 0.6)
+    ranked = [c for c in ((profile or {}).get("live") or {}).get("creators", [])
+              if (c.get("youtube") or {}).get("long_videos", 1)]
+    names = [c["name"] for c in ranked[:6]]
+    fp = [nm for nm, _ in focus_mod.people(focus) if nm not in names]
+    names += rng.sample(fp, min(len(fp), round(4 * w)))
+    rest = [f for f in famous if f not in names]
+    names += rng.sample(rest, max(0, min(len(rest), n - len(names))))
+    queries = [f"{nm} full episode" if nm in famous or re.search(r"podcast|show|theory|\blab\b", nm, re.I)
+               else f"{nm} interview" for nm in names[:n]]
+    return queries, names[:n]
+
+
 def rank_candidates(cands: list[dict], profile: dict | None, now: float | None = None,
-                    famous: list[str] | None = None) -> list[dict]:
+                    famous: list[str] | None = None, focus: dict | None = None) -> list[dict]:
     """Adds `rank_score` (0-100) and returns candidates best-first."""
     if not cands:
         return []
     now = now or time.time()
     famous = famous or []
+    focus = focus or {"weight": 0.0, "keywords": [], "creators": []}
+    w = float(focus.get("weight", 0.0))
+    people = [a for _, aliases in focus_mod.people(focus) for a in aliases if len(a) > 3]
     views = np.array([max(c["views"], 1.0) for c in cands])
     age_h = np.array([max(1.0, (now - c["published"]) / 3600) for c in cands])
     eng = np.array([c["likes"] / max(c["views"], 1.0) for c in cands])
@@ -240,12 +262,22 @@ def rank_candidates(cands: list[dict], profile: dict | None, now: float | None =
     fresh = np.array([1.0 if c.get("source") == "watchlist" and now - c["published"] < 48 * 3600 else 0.0
                       for c in cands])
     heat = np.array([1.0 if c.get("has_heatmap") else 0.0 for c in cands])  # "most replayed" data helps
-    star = np.array([1.0 if is_famous(c.get("channel", ""), famous) else 0.0 for c in cands])
+    star = np.array([1.0 if is_famous(c.get("channel", ""), famous) or any(
+        re.search(rf"\b{re.escape(f)}\b", c.get("title", ""), re.I) for f in famous if len(f) > 3) else 0.0
+        for c in cands])
+
+    def on_focus(c: dict) -> float:
+        text = f"{c.get('title', '')} {c.get('channel', '')} {c.get('description', '')[:300]}"
+        if any(re.search(rf"\b{re.escape(p)}\b", text, re.I) for p in people):
+            return 1.0
+        return focus_mod.fit(text, focus)
+    foc = np.array([on_focus(c) for c in cands])
     score = (0.30 * pct_rank(np.log10(views / age_h)) + 0.20 * pct_rank(np.log10(views))
              + 0.10 * pct_rank(eng) + 0.20 * pct_rank(subs) + 0.20 * fit + 0.10 * fresh + 0.05 * heat
-             + 0.30 * star) / 1.45
-    for c, s in zip(cands, score):
+             + 0.30 * star + 0.5 * w * foc) / (1.45 + 0.5 * w)
+    for c, s, f in zip(cands, score, foc):
         c["rank_score"] = round(float(s) * 100, 1)
+        c["focus_fit"] = round(float(f), 2)
     return sorted(cands, key=lambda c: -c["rank_score"])
 
 
@@ -269,6 +301,7 @@ def poll_watchlist(cfg, db, rep=None) -> list[dict]:
 
 def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, board=None) -> list[dict]:
     d = cfg["discovery"]
+    focus = focus_mod.load(cfg)
     max_videos = max_videos or d.get("max_videos_per_run", 8)
     now = time.time()
     after = now - d["published_within_days"] * 86400
@@ -290,7 +323,11 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, 
         if d["use_trending_chart"]:
             rep.progress("discovery", 0.3, "Reading YouTube's most-popular chart...")
             ids |= set(api.trending_ids(d["region_code"]))
-        for q in random.sample(d["search_queries"], len(d["search_queries"])):  # a different order every run
+        people, _ = creator_queries(profile, focus, list(d.get("famous_creators") or []), n=6)
+        fs = list(focus.get("searches") or [])
+        api_queries = people + random.sample(fs, min(len(fs), round(2 * focus.get("weight", 0.6)))) + \
+            random.sample(d["search_queries"], len(d["search_queries"]))  # a different order every run
+        for q in api_queries:
             rep.progress("discovery", 0.5, f"Searching YouTube: {q}")
             ids |= set(api.search(q, after, d["region_code"], d["language"]))
         details = api.videos(sorted(ids))
@@ -317,11 +354,13 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, 
             return found
 
         # the video scouts search in parallel (3 at a time - polite to YouTube, several times faster)
+        # the people worth clipping first (creator scout's ranking, your focus, big creators), then your
+        # focus searches, then the general searches
         famous = list(d.get("famous_creators") or [])
-        # famous creators first (a different handful each run), then the general searches
-        picks = random.sample(famous, min(len(famous), 8))
-        queries = [f"{name} full episode" for name in picks] + \
-            random.sample(d["search_queries"], len(d["search_queries"]))
+        queries, _ = creator_queries(profile, focus, famous)
+        fs = list(focus.get("searches") or [])
+        queries += random.sample(fs, min(len(fs), round(3 * focus.get("weight", 0.6))))
+        queries += random.sample(d["search_queries"], len(d["search_queries"]))
         rep.progress("discovery", 0.4, f"Video scouts searching YouTube ({len(queries)} searches)...")
         with ThreadPoolExecutor(max_workers=3) as ex:
             for found in ex.map(search_one, queries):
@@ -363,7 +402,9 @@ def discover(cfg, db, rep, profile: dict | None, max_videos: int | None = None, 
             continue
         kept.append(c)
 
-    ranked = rank_candidates(kept, profile, now, d.get("famous_creators") or [])
+    stars = list(d.get("famous_creators") or []) + [c["name"] for c in ((profile or {}).get("live") or {})
+                                                     .get("creators", [])[:12]]
+    ranked = rank_candidates(kept, profile, now, stars, focus)
     # spread over creators: each channel's best video first, then second-best videos, and so on
     seen: dict[str, int] = {}
     for c in ranked:

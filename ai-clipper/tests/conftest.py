@@ -17,6 +17,7 @@ def cfg(tmp_path):
         c["editing"][key] = str(tmp_path / key)
     c["trends"]["import_dir"] = str(tmp_path / "imports")
     c["trends"]["free"]["enabled"] = False  # tests never touch the network
+    c["trends"]["live"]["enabled"] = False
     return c
 
 

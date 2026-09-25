@@ -49,8 +49,8 @@ def test_team_is_150_agents_and_the_board_tracks_work():
     per_division = Counter()
     for _, division, _, n, _ in ROLES:
         per_division[division] += n
-    assert per_division == {"command": 6, "intake": 10, "full": 10, "section": 60, "gate": 32, "verify": 10,
-                            "production": 16, "publishing": 6}
+    assert per_division == {"command": 6, "intake": 11, "full": 10, "section": 60, "gate": 32, "verify": 10,
+                            "production": 15, "publishing": 6}
     board = AgentBoard()
     assert len({a["id"] for a in board.agents}) == 150
     with board.work("listen", "Listening to a podcast"):
