@@ -35,6 +35,7 @@ from clipper.trends.live import LiveScan  # noqa: E402
 from clipper.trends.social import InstagramWeb, RateLimited, TikTokWeb  # noqa: E402
 
 CASES: list[tuple[str, str, object]] = []
+SEED = [0]  # --seed shifts every random scenario, so each run tries new inputs
 
 
 def case(group: str, name: str):
@@ -100,7 +101,7 @@ def _tt_item(rng):
 for k in range(20):
     @case("social", f"tiktok_junk_{k}")
     def _(ctx, k=k):
-        rng = random.Random(k)
+        rng = random.Random(k + SEED[0])
         prof = {"handle": rng.choice(["h", "a.b_c"]), "name": rng.choice([None, "N"]), "followers": rng.choice(JUNK)}
         problems = []
         for _ in range(40):
@@ -129,7 +130,7 @@ def _ig_user(rng):
 for k in range(12):
     @case("social", f"instagram_junk_{k}")
     def _(ctx, k=k):
-        rng = random.Random(100 + k)
+        rng = random.Random(100 + k + SEED[0])
         problems = []
         for _ in range(20):
             acct, vids = InstagramWeb.parse(_ig_user(rng), "fallback")
@@ -306,7 +307,7 @@ for label, opts in SCAN_SCENARIOS.items():
     for variant in ("both", "tiktok_only", "shorts_fail"):
         @case("livescan", f"{label}_{variant}")
         def _(ctx, label=label, opts=opts, variant=variant):
-            rng = random.Random(hash((label, variant)) % 10_000)
+            rng = random.Random(hash((label, variant)) % 10_000 + SEED[0])
             cfg = fresh_cfg(ctx["tmp"] / f"scan_{label}_{variant}")
             lc = cfg["trends"]["live"]
             lc.update(enabled=True, min_minutes=0.02, max_minutes=0.08, recheck_after_minutes=0.005,
@@ -355,7 +356,7 @@ for label, opts in SCAN_SCENARIOS.items():
 for k in range(12):
     @case("creators", f"scout_fuzz_{k}")
     def _(ctx, k=k):
-        rng = random.Random(500 + k)
+        rng = random.Random(500 + k + SEED[0])
         people = rng.choice([[], ["C++ Guy|C++", "A.I. Expert", "(weird)", "Élodie Dupont", "Mr. T"],
                              [f"Person {i}|P{i}" for i in range(200)], ["Alex Hormozi|Hormozi"]])
         f = {"weight": rng.choice([0, 0.6, 1]), "creators": people, "keywords": rng.choice([[], ["money", "(", "["]])}
@@ -394,7 +395,7 @@ for k in range(12):
     def _(ctx, k=k):
         from clipper.discovery.youtube import creator_queries, rank_candidates
 
-        rng = random.Random(900 + k)
+        rng = random.Random(900 + k + SEED[0])
         cfg = fresh_cfg(ctx["tmp"] / f"disc{k}")
         f = focus_mod.load(cfg)
         f["weight"] = rng.choice([0.0, 0.6, 1.0])
@@ -415,7 +416,7 @@ for k in range(12):
         if any(not (0 <= c["rank_score"] <= 100) or c["rank_score"] != c["rank_score"] for c in ranked):
             p.append(f"rank_score out of range: {[c['rank_score'] for c in ranked][:5]}")
         q, names = creator_queries(profile, f, rng.choice([[], ["Theo Von"] * 3]), n=rng.choice([0, 1, 10]),
-                                   rng=random.Random(k))
+                                   rng=random.Random(k + SEED[0]))
         if len(q) != len(names) or len(set(names)) != len(names):
             p.append(f"bad queries: {names}")
         return p
@@ -571,8 +572,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="")
     ap.add_argument("--out", default="system_backtest_out")
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     only = {g for g in args.only.split(",") if g}
+    SEED[0] = args.seed
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="sysbt_", dir=out))

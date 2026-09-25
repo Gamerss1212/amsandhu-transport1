@@ -102,6 +102,9 @@ def test_censor_explicit_words_only():
     assert censor("I was sucking his cock") == "I was sucking his c*ck"
     assert censor("Dickens ordered a cocktail and shiitake") == "Dickens ordered a cocktail and shiitake"
     assert censor("") == ""
+    # word forms found by the backtest on a real clip ("the shittiest thing ever")
+    assert censor("the shittiest, a shitshow, pure fuckery") == "the sh*tt**st, a sh*tsh*w, pure f*ck*ry"
+    assert censor("an assessment in Scunthorpe") == "an assessment in Scunthorpe"
 
 
 def test_builtin_assets_are_generated_once(tmp_path):

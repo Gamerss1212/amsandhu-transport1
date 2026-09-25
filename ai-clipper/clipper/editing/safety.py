@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 
 _EXPLICIT = (
-    r"(mother)?f+u+c+k+(s|ed|er|ers|ing|in|in')?|motherfuckers?|"
-    r"(bull|horse)?shit(s|ty|ting|ted)?|cock(s|sucker|suckers)?|dick(s|head|heads)?|puss(y|ies)|cunts?|"
-    r"bitch(es|ing|y)?|assholes?|whores?|sluts?|slutty|nigg(a|as|er|ers|uh)|fags?|faggots?|cum|porno?|"
+    r"(mother)?f+u+c+k+(s|ed|er|ers|ing|in|in'|ery|face|faces|head|heads|wit|wits|tard|boy|boys)?|"
+    r"motherfuckers?|(bull|horse|dip|chicken)?shit(s|ty|tier|tiest|ting|ted|head|heads|show|shows|hole|holes|"
+    r"load|faced)?|cock(s|sucker|suckers)?|dick(s|head|heads)?|puss(y|ies)|cunts?|"
+    r"bitch(es|ing|y|ass|asses)?|ass(hole|holes|hat|hats)|whores?|sluts?|slutty|nigg(a|as|er|ers|uh)|fags?|"
+    r"faggots?|cum|porno?|"
     r"retard(s|ed)?"
 )
 _PATTERN = re.compile(rf"\b({_EXPLICIT})\b", re.I)

@@ -121,7 +121,7 @@ def check_clip(out_dir: Path, name: str, info: dict, words: list[dict], hook: st
         p.append("no audio track")
     if abs(pr["duration"] - info["duration"]) > 0.35:
         p.append(f"duration {pr['duration']:.2f} vs planned {info['duration']:.2f}")
-    if info["duration"] < 5:
+    if info["duration"] < 5 and (words[-1]["e"] - words[0]["s"] if words else 0) >= 4:  # only if there was more
         p.append(f"clip too short: {info['duration']:.1f}s")
     err = sh(["-i", str(video), "-map", "0:a:0", "-af", "ebur128=peak=true", "-f", "null", "-"])
     m = re.findall(r"I:\s+(-?[\d.]+) LUFS", err)
