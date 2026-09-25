@@ -150,6 +150,7 @@ class AgentBoard:
         self._hist: dict[str, deque] = {a["id"]: deque(maxlen=8) for a in self.agents}
         self._feed: deque = deque(maxlen=400)            # every agent's findings, newest last
         self._seq = 0
+        self._rseq: dict[str, int] = {}                  # agent id -> feed number of its latest finding
 
     def report(self, agent_id: str | None, text: str, kind: str = "done") -> None:
         """What an agent just concluded, in one sentence: shown on its card and in the live feed."""
@@ -159,6 +160,7 @@ class AgentBoard:
             now = time.time()
             self._seq += 1
             self._last[agent_id] = (text[:220], now)
+            self._rseq[agent_id] = self._seq
             self._hist[agent_id].append({"t": now, "text": text[:220], "kind": kind})
             a = self._by_id[agent_id]
             self._feed.append({"seq": self._seq, "t": now, "id": agent_id, "name": a["name"],
@@ -205,6 +207,7 @@ class AgentBoard:
             agent = next((a for a in ids if a not in self._busy), None)
             if agent is not None:
                 self._busy[agent] = (task[:160], time.time())
+            before = self._rseq.get(agent, -1)
         ok, t0 = False, time.time()
         try:
             yield agent
@@ -215,7 +218,8 @@ class AgentBoard:
                     self._busy.pop(agent, None)
                     self._alive[agent] = time.time()
                     (self._done if ok else self._failed)[agent] += 1
-                    fresh = self._last.get(agent, ("", 0.0))[1] >= t0
+                    # did it report a finding during this job? (counted, not timed: Windows' clock is coarse)
+                    fresh = self._rseq.get(agent, -1) != before
             if agent is not None and not fresh:
                 self.report(agent, (f"Done in {time.time() - t0:.1f}s: " if ok else "Could not finish: ") + task,
                             "done" if ok else "fail")
