@@ -60,14 +60,20 @@ class Brain:
         return max(-15.0, min(15.0, taste)) + variety
 
     def record_made(self, video_id: str, start: float, end: float, category: str, channel: str,
-                    name: str = "") -> None:
+                    name: str = "", text: str = "") -> None:
         with self.lock:
             self.data["made"].append({"video": video_id, "start": round(start, 2), "end": round(end, 2),
-                                      "category": category, "channel": channel, "name": name, "ts": time.time()})
+                                      "category": category, "channel": channel, "name": name, "ts": time.time(),
+                                      "text": text[:600]})
             self.data["made"] = self.data["made"][-5000:]
             for f in self._features(category, channel, end - start):  # making it is a small vote for it
                 self.data["weights"][f] = self.data["weights"].get(f, 0.0) + 0.3
             self._save()
+
+    def history_texts(self, limit: int = 300) -> list[tuple[str, str]]:
+        """What past clips said, so the duplicate verifier can catch the same story told in another video."""
+        with self.lock:
+            return [(f"past:{m.get('name') or m['video']}", m["text"]) for m in self.data["made"][-limit:] if m.get("text")]
 
     def learn_removed(self, meta: dict) -> None:
         """You deleted a clip: that is a strong vote against clips like it."""

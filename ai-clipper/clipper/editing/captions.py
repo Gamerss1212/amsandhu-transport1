@@ -63,6 +63,47 @@ def build_srt(words: list[dict], per_group: int = 6) -> str:
     return "\n".join(blocks)
 
 
+def build_vtt(words: list[dict], per_group: int = 6) -> str:
+    """WebVTT subtitles; when speakers are known each line carries a voice tag (<v Speaker A>)."""
+    def t(x: float) -> str:
+        ms = int(round(max(0.0, x) * 1000))
+        h, ms = divmod(ms, 3600000)
+        m, ms = divmod(ms, 60000)
+        sec, ms = divmod(ms, 1000)
+        return f"{h:02d}:{m:02d}:{sec:02d}.{ms:03d}"
+    words = [w for w in words if not is_filler(w["w"])]
+    groups: list[list[dict]] = []
+    for g in group_words(words, per_group):  # a new speaker always starts a new line
+        cur: list[dict] = []
+        for w in g:
+            if cur and w.get("spk") != cur[-1].get("spk"):
+                groups.append(cur)
+                cur = []
+            cur.append(w)
+        groups.append(cur)
+    out = ["WEBVTT", ""]
+    for i, g in enumerate(groups):
+        end = g[-1]["e"] + 0.1
+        if i + 1 < len(groups):
+            end = min(end, groups[i + 1][0]["s"])
+        text = " ".join(clean(w["w"]) for w in g)
+        spk = g[0].get("spk")
+        out += [f"{t(g[0]['s'])} --> {t(max(end, g[0]['s'] + 0.05))}",
+                f"<v Speaker {spk}>{text}" if spk else text, ""]
+    return "\n".join(out)
+
+
+def build_labeled_srt(words: list[dict], per_group: int = 6) -> str:
+    """SRT with a speaker label whenever the speaker changes ("A: ..."), for editors and accessibility."""
+    blocks = build_vtt(words, per_group).split("\n\n")[1:]
+    out = []
+    for n, b in enumerate((b for b in blocks if b.strip()), 1):
+        timing, text = b.split("\n", 1)
+        text = re.sub(r"^<v Speaker (\w+)>", r"\1: ", text)
+        out.append(f"{n}\n{timing.replace('.', ',')}\n{text}\n")
+    return "\n".join(out)
+
+
 def hook_time(hook: str) -> float:
     """Long enough to read the hook: ~0.28 s per word, between 2.2 and 4 s."""
     return min(4.0, max(2.2, 0.8 + 0.28 * len(hook.split())))

@@ -167,6 +167,8 @@ class Clip:
     hashtags: list = field(default_factory=list)
     emphasis_words: list = field(default_factory=list)
     final_score: float = 0.0
+    status: str = "approved"      # approved | review (held for a person) | rejected
+    crew: dict = field(default_factory=dict)  # the crew's full decision record (scores, reviewers, risks...)
 
     @property
     def duration(self) -> float:

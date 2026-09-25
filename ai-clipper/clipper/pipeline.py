@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from collections import Counter
@@ -27,6 +28,7 @@ from .llm import Claude
 from .trends import run_trend_analysis
 from .media import CANCEL, Cancelled, check_cancel
 from .ytdl import BotCheck
+from .crew.package import package_clip, write_run_package
 
 
 MAX_CLIPS = 100
@@ -62,6 +64,8 @@ class Pipeline:
         self.brain = Brain(cfg.path("paths.db").parent / "brain.json")
         self.lock = threading.Lock()
         self.running = False
+        self.profile: dict | None = None
+        self.last_package: Path | None = None
 
     queue_hours = 2.0
     queue_at = 0.0
@@ -178,6 +182,8 @@ class Pipeline:
         llm = self._llm()
         yt = YouTubeAPI(self.cfg.youtube_key) if self.cfg.youtube_key else None
         run_id = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.profile = profile
+        videos: list[dict] = []  # each watched video's coverage report, for the final package
         rep.info("analysis", f"Goal: {want} clip{'s' if want > 1 else ''}" +
                  (f" in {layers} layers of up to {LAYER}" if layers > 1 else "") +
                  " - from as many videos as it takes")
@@ -247,7 +253,11 @@ class Pipeline:
                 return False
             rep.info("analysis", f"Analyzing: {cand['channel']} - {cand['title']}".rstrip(" -")
                      if cand["title"] else f"Analyzing: {cand.get('input') or cand['video_id']}")
-            running[ex.submit(analyze_video, cand, self.cfg, rep, profile, llm, yt)] = cand
+            # what was already chosen (this run, earlier runs): the duplicate verifier compares against it
+            peers = [(f"{_vid(r)}@{c.start:.0f}", c.summary) for c, r in pool] + \
+                [(p.get("name", ""), p.get("summary", "")) for p in produced] + self.brain.history_texts()
+            running[ex.submit(analyze_video, cand, self.cfg, rep, profile, llm, yt, brain=self.brain,
+                              peers=peers)] = cand
             return True
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -282,9 +292,12 @@ class Pipeline:
                         continue
                     analyzed += 1
                     vid = _vid(result)
+                    if result.get("crew"):
+                        videos.append({"id": vid, "title": result["meta"].get("title"),
+                                       "channel": result["meta"].get("channel"), **result["crew"]})
                     with BOARD.work("brain", "Checking the shared memory for repeats"):
                         fresh = [c for c in result["clips"] if not self.brain.already_made(vid, c.start, c.end)]
-                    repeats += len(result["clips"]) - len(fresh)
+                    repeats += len(result["clips"]) - len(fresh) + (result.get("crew") or {}).get("repeats", 0)
                     if len(fresh) < len(result["clips"]):
                         rep.info("analysis", f"Skipped {len(result['clips']) - len(fresh)} moment(s) "
                                              "you already got before")
@@ -314,7 +327,22 @@ class Pipeline:
                                "Try again later, choose other videos, or lower analysis.local_content_threshold.")
         if len(produced) < want:
             rep.info("editing", f"Made {len(produced)} of {want} clips - only these passed the strict review")
+        if produced:
+            self._final_package(run_id, produced, videos)
         return produced
+
+    def _final_package(self, run_id: str, produced: list[dict], videos: list[dict]) -> None:
+        """Ranked clips, ready-to-post versions and metadata, posting plan, coverage proof."""
+        try:
+            from .publish import PostingService
+
+            timing = PostingService(self.cfg, self.db, self.rep).timing
+            folder = write_run_package(self.cfg.path("paths.output_dir"), run_id, produced, videos, self.cfg, timing)
+            self.last_package = folder
+            self.rep.emit(Event("package", "editing", f"Final package ready: {folder.name} (package.json + package.md)",
+                                data={"folder": folder.name}))
+        except Exception as exc:
+            self.rep.error("editing", f"Could not write the final package: {exc}")
 
     def _edit(self, result: dict, level: str | None, run_id: str = "", layer: int = 1) -> list[dict]:
         meta, clips = result["meta"], result["clips"]
@@ -322,6 +350,11 @@ class Pipeline:
             "_".join(x for x in (time.strftime("%Y-%m-%d"), slug(meta.get("channel") or "", 20),
                                  slug(str(meta.get("id") or "video"), 40)) if x != "clip")
         out_dir.mkdir(parents=True, exist_ok=True)
+        if result.get("video"):  # the crew's audit trail and coverage proof travel with the clips
+            for f in ("crew_audit.json", "coverage.json"):
+                src = Path(result["video"]).parent / f
+                if src.exists():
+                    shutil.copy2(src, out_dir / f)
         energy = result["signals"]["raw"].get("energy")
         comedy = float(result["signals"].get("comedy") or 0.0)
         taken = {int(m.group(1)) for f in out_dir.glob("clip_*.json") if (m := re.match(r"clip_(\d+)", f.name))}
@@ -377,11 +410,20 @@ class Pipeline:
             finally:
                 slot.__exit__(None, None, None)
             self.brain.record_made(_vid(result), clip.start, clip.end, clip.category,
-                                   meta.get("channel") or "", name)
+                                   meta.get("channel") or "", name, clip.summary)
             info.update(level=preset.name, style_reason=why, run=run_id, layer=layer)
             write_post_files(out_dir, name, clip.to_dict(), info, meta, safe)
+            try:  # production agents: platform versions, metadata options, thumbnails, recommendation
+                pkg = package_clip(out_dir, name, {**clip.to_dict(), "title": title, "hook": hook}, info, meta,
+                                   self.cfg, self.profile, offset)
+            except Cancelled:
+                return None
+            except Exception as exc:
+                self.rep.error("editing", f"Packaging {name} failed: {exc}")
+                pkg = {"status": clip.status, "crew": clip.crew}
             item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook, "category": clip.category,
-                    "score": clip.final_score, "judge": clip.judge_score, **info}
+                    "score": clip.final_score, "judge": clip.judge_score, "status": clip.status,
+                    "summary": clip.summary, "package": pkg, **info}
             rv = info.get("review", {})
             checked = "self-review passed" if rv.get("ok", True) else "review: " + "; ".join(rv.get("problems", []))
             if rv.get("fixed"):
@@ -389,7 +431,8 @@ class Pipeline:
             with lock:
                 done[0] += 1
                 self.rep.progress("editing", done[0] / len(plans), f"Edited {done[0]}/{len(plans)}")
-            self.rep.emit(Event("clip", "editing", f"Clip ready: {title} (score {clip.final_score}) - {checked}",
+            state = "draft - held for your review" if clip.status == "review" else "draft"
+            self.rep.emit(Event("clip", "editing", f"Clip ready ({state}): {title} (score {clip.final_score}) - {checked}",
                                 data=item))
             return item
 
@@ -420,11 +463,14 @@ def list_outputs(output_dir: Path) -> list[dict]:
     files = sorted(output_dir.glob("*/clip_*.json"), key=lambda f: f.name)  # best clip of each video first
     files.sort(key=lambda f: f.parent.name, reverse=True)  # newest video first (stable sort)
     for meta_file in files:
+        if meta_file.name.endswith(".package.json"):
+            continue
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         clip = meta.get("clip", {})
+        crew = clip.get("crew") or {}
         items.append({"folder": meta_file.parent.name, "name": meta["name"], "video": meta["video"],
                       "thumbnail": meta.get("thumbnail"), "title": clip.get("title"), "hook": clip.get("hook"),
                       "score": clip.get("final_score"), "judge": clip.get("judge_score"),
@@ -432,7 +478,11 @@ def list_outputs(output_dir: Path) -> list[dict]:
                       "style_reason": meta.get("style_reason", ""), "run": meta.get("run", ""),
                       "layer": meta.get("layer"), "review": meta.get("review"),
                       "caption": meta.get("post_caption", ""), "reasons": clip.get("judge_reasons", ""),
-                      "source": meta.get("source", {})})
+                      "source": meta.get("source", {}), "status": crew.get("status") or clip.get("status") or "approved",
+                      "confidence": crew.get("confidence"), "support": crew.get("support"),
+                      "dissent": crew.get("dissent"), "risks": len(crew.get("risks") or []),
+                      "review_because": crew.get("review_because") or [],
+                      "package": (meta_file.parent / f"{meta['name']}.package.json").exists()})
     return items
 
 
@@ -448,11 +498,16 @@ def delete_clip(output_dir: Path, folder: str, name: str, brain: Brain | None = 
             brain.learn_removed(json.loads(meta_file.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
-    for ext in (".mp4", ".jpg", ".txt", ".srt", ".json"):
+    for ext in (".mp4", ".jpg", ".txt", ".srt", ".json", ".vtt", ".speakers.srt", ".package.json", ".tiktok.mp4",
+                ".instagram.mp4", ".youtube.mp4", ".thumb2.jpg", ".thumb3.jpg", ".thumb4.jpg"):
         f = d / f"{name}{ext}"
         if f.exists():
             f.unlink()
             removed += 1
+    left = {f.name for f in d.iterdir()} if d.exists() else set()
+    if left and left <= {"crew_audit.json", "coverage.json"}:  # the video's audit goes with its last clip
+        for n in left:
+            (d / n).unlink()
     if d.exists() and not any(d.iterdir()):
         d.rmdir()
     return removed

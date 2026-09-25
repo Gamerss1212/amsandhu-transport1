@@ -138,14 +138,17 @@ def trim(video: Path, start: float, end: float, srt: Path | None, encode: list[s
     run_ffmpeg(["-ss", f"{start:.3f}", "-i", str(video), "-t", f"{end - start:.3f}", *encode,
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)])
     tmp.replace(video)
-    if srt and srt.exists() and start > 0:
+    if srt and start > 0:
         def shift(mt: re.Match) -> str:
-            t = int(mt.group(1)) * 3600 + int(mt.group(2)) * 60 + int(mt.group(3)) + int(mt.group(4)) / 1000
+            t = int(mt.group(1)) * 3600 + int(mt.group(2)) * 60 + int(mt.group(3)) + int(mt.group(5)) / 1000
             t = max(0.0, t - start)
             ms = int(round(t * 1000))
-            return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
-        srt.write_text(re.sub(r"(\d\d):(\d\d):(\d\d),(\d\d\d)", shift, srt.read_text(encoding="utf-8")),
-                       encoding="utf-8")
+            return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d}{mt.group(4)}{ms % 1000:03d}"
+        # every subtitle file of the clip moves with the picture (SRT, VTT, speaker-labelled SRT)
+        for f in (srt, srt.with_suffix(".vtt"), srt.with_name(srt.stem + ".speakers.srt")):
+            if f.exists():
+                f.write_text(re.sub(r"(\d\d):(\d\d):(\d\d)([,.])(\d\d\d)", shift, f.read_text(encoding="utf-8")),
+                             encoding="utf-8")
 
 
 def review_and_fix(video: Path, expected: float, W: int, H: int, fps: int, srt: Path | None,

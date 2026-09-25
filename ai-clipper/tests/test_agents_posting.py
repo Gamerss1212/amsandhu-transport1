@@ -42,16 +42,24 @@ class FakeHTTP:
         return self._go("PUT", url, **kw)
 
 
-def test_team_is_25_agents_and_the_board_tracks_work():
-    assert TEAM_SIZE == 25 and len({r for r, *_ in ROLES}) == 13
+def test_team_is_150_agents_and_the_board_tracks_work():
+    from collections import Counter
+
+    assert TEAM_SIZE == 150 and len({r for r, *_ in ROLES}) == len(ROLES)  # every role distinct
+    per_division = Counter()
+    for _, division, _, n, _ in ROLES:
+        per_division[division] += n
+    assert per_division == {"command": 6, "intake": 10, "full": 10, "section": 60, "gate": 32, "verify": 10,
+                            "production": 16, "publishing": 6}
     board = AgentBoard()
+    assert len({a["id"] for a in board.agents}) == 150
     with board.work("listen", "Listening to a podcast"):
         snap = board.snapshot()
         busy = [a for a in snap if a["busy"]]
-        assert len(snap) == 25 and busy[0]["name"] == "Listener 1" and "podcast" in busy[0]["task"]
+        assert len(snap) == 150 and busy[0]["name"] == "Listener 1" and "podcast" in busy[0]["task"]
         with board.work("listen", "second video"):
             assert board.busy() == 2
-    assert board.busy() == 0 and [a["done"] for a in board.snapshot() if a["role"] == "listen"][0] == 2
+    assert board.busy() == 0 and [a["done"] for a in board.snapshot() if a["role"] == "listen"][:2] == [1, 1]
 
 
 def test_instagram_reel_upload_flow(tmp_path):
@@ -157,7 +165,8 @@ def test_posting_endpoints(cfg, monkeypatch):
 
     monkeypatch.setattr(publish.TikTok, "whoami", lambda self: {"username": "mychannel"})
     client = TestClient(create_app(cfg))
-    assert client.get("/api/agents").json()["size"] == 25
+    agents = client.get("/api/agents").json()
+    assert agents["size"] == 150 and len(agents["divisions"]) == 8 and "queued" in agents["registry"]
     assert client.post("/api/posting/connect", json={"platform": "tiktok", "access_token": "tok",
                                                      "mode": "inbox"}).json()["connected"]
     st = client.get("/api/posting").json()
@@ -224,6 +233,9 @@ def test_agent_states_watching_standby_offline():
     assert states["Listener 1"]["state"] == "offline"  # never beat: shown with a reason, not hidden
     board._duty["editor"] = ("Ready", time.time() - 600, None)
     assert "No heartbeat" in {a["name"]: a for a in board.snapshot()}["Editor 1"]["task"]
+    board.alive("s_hook-3")  # a crew agent's own heartbeat keeps just that agent online
+    states = {a["id"]: a for a in board.snapshot()}
+    assert states["s_hook-3"]["state"] == "watching" and states["s_hook-2"]["state"] == "offline"
 
 
 def test_stop_halts_a_long_ffmpeg_job_right_away(tmp_path):

@@ -19,7 +19,7 @@ __all__ = ["Clip", "analyze_video", "clip_words"]
 
 
 def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
-                  llm: Claude | None, yt_api=None) -> dict:
+                  llm: Claude | None, yt_api=None, brain=None, peers=None) -> dict:
     a = cfg["analysis"]
     vid = cand["video_id"]
     rep.progress("analysis", 0.02, f"Downloading {cand.get('title') or vid}...")
@@ -74,21 +74,38 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
             rep.info("analysis", f"Comments unavailable: {exc}")
 
     watch("audio")
-    with BOARD.work("audio", f"Laughter, energy and reactions in {name}"):
+    with BOARD.work("sound", f"Laughter, energy and reactions in {name}"):
         wav = audio_for_analysis(video, video.parent / "audio16k.wav")
         signals = compute_signals(info, transcript, wav, comments, meta["duration"])
     found = [k for k, v in signals["raw"].items() if v is not None and k != "pace"]
     rep.info("analysis", f"Audience/audio signals available: {', '.join(found) or 'none'}")
 
     watch("judge")
-    with BOARD.work("judge", f"Scoring every moment of {name}"):
-        approved, judged = select_moments(
-            meta, transcript, signals, profile, cfg, video, llm,
-            progress=lambda f, m="": rep.progress("analysis", 0.4 + 0.58 * f, m),
-            log=lambda m: rep.info("analysis", m))
+    crew = None
+    if llm:  # Claude (optional) reads the transcript and judges the candidates
+        with BOARD.work("consensus", f"Claude is judging every moment of {name}"):
+            approved, judged = select_moments(
+                meta, transcript, signals, profile, cfg, video, llm,
+                progress=lambda f, m="": rep.progress("analysis", 0.4 + 0.58 * f, m),
+                log=lambda m: rep.info("analysis", m))
+    else:  # the 150-agent crew reviews every second of the video independently
+        from ..crew import review_video
+
+        vid_key = str(meta.get("id") or meta.get("webpage_url") or meta.get("title") or "")
+        rep.progress("analysis", 0.4, "The crew is splitting the video into sections for 150 agents...")
+        approved, judged, crew = review_video(
+            meta, transcript, signals, profile, cfg, video, wav, rep, watch,
+            already_made=(lambda s, e: brain.already_made(vid_key, s, e)) if brain else None, peers=peers)
+        held = sum(c.status == "review" for c in approved)
+        rep.info("analysis", f"Crew: {len(approved) - held} approved, {held} held for your review - "
+                             f"{crew['coverage']['summary']} ({crew['agents_used']} agents, {crew['seconds']:.0f}s)")
     (video.parent / "analysis.json").write_text(json.dumps(
         {"meta": {k: meta[k] for k in ("id", "title", "channel", "duration") if k in meta},
-         "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2), encoding="utf-8")
+         "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2,
+        default=str), encoding="utf-8")
     rep.progress("analysis", 1.0, f"{len(approved)} clips approved")
     watch("done", 1.0, clips=len(approved))
-    return {"video": video, "meta": meta, "transcript": transcript, "signals": signals, "clips": approved}
+    return {"video": video, "meta": meta, "transcript": transcript, "signals": signals, "clips": approved,
+            "crew": None if crew is None else {
+                **{k: crew[k] for k in ("coverage", "phases", "maps", "seconds", "agents_used", "sections")},
+                "repeats": sum("already made" in r.get("reason", "") for r in crew["rejected"])}}

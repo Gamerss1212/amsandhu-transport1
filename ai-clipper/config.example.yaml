@@ -103,6 +103,16 @@ analysis:
     energy: 0.10
     trend_fit: 0.15              # match with what is going viral right now
 
+crew:                            # the 150-agent review (used when there is no ANTHROPIC_API_KEY)
+  min_support: 4                 # distinct specialist lenses that must back a clip (of 12)
+  min_score: 45                  # expected performance (0-100) a clip needs
+  min_confidence: 0.55           # below this a clip is held for your review instead of approved
+  min_context: 50                # contextual completeness below this = misleading / out of context
+  min_production: 30             # production quality below this = technically flawed
+  shortlist: auto                # moments sent to the 16 gate reviewers per video (auto: 3 x clips per video)
+  max_verification_passes: 100   # targeted re-checks per finalist, at most
+  retranscribe: auto             # re-listen to the top finalists' words (auto: when a local speech model is installed)
+
 # ---------------------------------------------------------------- Step 3
 editing:
   default_level: auto            # auto = the app picks the edit each clip needs (or simple | normal | hard | professional | extreme)

@@ -356,7 +356,9 @@ class PostingService:
         now = now or time.time()
         out_dir = self.cfg.path("paths.output_dir")
         for post in self.db.posts("status = 'scheduled' AND scheduled_at <= ?", (now,)):
-            video = out_dir / post["folder"] / f"{post['name']}.mp4"
+            video = out_dir / post["folder"] / f"{post['name']}.{post['platform']}.mp4"  # the platform's checked version
+            if not video.exists():
+                video = out_dir / post["folder"] / f"{post['name']}.mp4"
             self.db.update_post(post["id"], status="posting", attempts=post["attempts"] + 1)
             try:
                 if not video.exists():

@@ -21,7 +21,7 @@ from pathlib import Path
 from ..agents import BOARD
 from ..media import Cancelled, extract_frame, ffmpeg_exe, probe, run_ffmpeg
 from .builtin_assets import builtin
-from .captions import build_ass, build_srt
+from .captions import build_ass, build_labeled_srt, build_srt, build_vtt
 from .fonts import size_scale
 from .safety import censor
 from .levels import Preset
@@ -468,8 +468,16 @@ def _render_pass(job: RenderJob, preset: Preset, cfg, encode: list[str]) -> dict
     os.replace(partial, out)
 
     (job.out_dir / f"{job.name}.srt").write_text(build_srt(words), encoding="utf-8")
+    (job.out_dir / f"{job.name}.vtt").write_text(build_vtt(words), encoding="utf-8")
+    labeled = any(w.get("spk") for w in words)
+    if labeled:
+        (job.out_dir / f"{job.name}.speakers.srt").write_text(build_labeled_srt(words), encoding="utf-8")
     shutil.rmtree(work, ignore_errors=True)
-    return {"video": out.name, "subtitles": f"{job.name}.srt", "duration": round(duration, 2),
+    return {"video": out.name, "subtitles": f"{job.name}.srt", "vtt": f"{job.name}.vtt",
+            "speaker_subtitles": f"{job.name}.speakers.srt" if labeled else None,
+            "source_ranges": [[round(a, 3), round(b, 3)] for a, b in ranges], "speed": preset.speed,
+            "caption_y": int(caption_y), "hook_y": int(hook_y) if preset.hook_overlay else None,
+            "duration": round(duration, 2),
             "layout": layout, "jump_cuts": len(ranges) - 1, "zooms": len(zooms),
             "music": music.name if music else None, "broll": broll.name if broll else None}
 

@@ -15,8 +15,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import ytdl
-from ..agents import BOARD, TEAM_SIZE
+from ..agents import BOARD, DIVISIONS, TEAM_SIZE
 from ..config import Config
+from ..crew import CREW
+from ..crew.package import publish_check
 from ..discovery import poll_watchlist
 from ..editing import LEVEL_NAMES
 from ..events import Reporter
@@ -132,12 +134,30 @@ def create_app(cfg: Config) -> FastAPI:
         background loop that stopped."""
         while not stop.is_set():
             waiting = "Ready for the next video" if not pipe.running else "Ready - takes the next job the moment it comes"
-            for role, duty in (("download", waiting), ("listen", waiting), ("audio", waiting), ("judge", waiting),
-                               ("hook", "Ready to write hooks, captions and hashtags"),
+            crew_idle = "Ready - takes the next assignment from the registry the moment one is queued"
+            for role, duty in (("download", waiting), ("listen", waiting),
+                               ("hookwriter", "Ready to write hook options in the speaker's own words"),
+                               ("titles", "Ready to write title and description options"),
+                               ("captions", "Ready to write captions for each platform"),
+                               ("hashtags", "Ready to build hashtag sets"), ("cta", "Ready to write calls to action"),
+                               ("thumbs", "Ready to pick cover frames"),
+                               ("subtitles", "Ready to write SRT / VTT subtitles with speaker labels"),
                                ("director", "Ready to choose each clip's edit"),
                                ("editor", "Ready to edit - clips come in layers of 5" if pipe.running else "Ready to edit the next clips"),
-                               ("review", "Ready to watch and fix every finished clip")):
+                               ("inspector", "Ready to watch and fix every finished clip"),
+                               ("tiktok", "Ready to make and check TikTok versions"),
+                               ("reels", "Ready to make and check Reels versions"),
+                               ("shorts", "Ready to make and check Shorts versions"),
+                               ("strategist", "Ready to pick each clip's best platform and audience"),
+                               ("order", "Ready to plan the posting order"),
+                               ("compliance", "Auto-posting is " + ("on: only fully cleared clips go out" if
+                                              (cfg.get("posting") or {}).get("auto_schedule") else
+                                              "off: every clip stays a draft for your approval"))):
                 BOARD.beat(role, duty)
+            for role, *_ in (r for r in __import__("clipper.agents", fromlist=["ROLES"]).ROLES
+                             if r[1] in ("command", "full", "section", "gate", "verify")):
+                BOARD.beat(role, crew_idle)
+            CREW.start()  # restarts any crew agent whose thread died
             b = pipe.brain.summary()
             BOARD.beat("brain", f"Memory: {b['made']} clips made, {b['removed']} removed - never repeats a moment")
             for name, (target, thread) in list(loops.items()):
@@ -152,20 +172,34 @@ def create_app(cfg: Config) -> FastAPI:
     BOARD.beat("scout", "Starting up - first search for viral videos in a moment")
 
     def auto_schedule(ev) -> None:
+        """Clips are drafts. Only when automatic posting is on, the accounts are connected and the compliance
+        officer clears every check does a clip get scheduled - anything else waits for a person."""
         p = cfg.get("posting") or {}
         if ev.kind != "clip" or not p.get("auto_schedule"):
             return
+        c = ev.data
+        ok, why = publish_check(c, cfg)
+        if not ok:
+            rep.info("posting", f"Kept as a draft for your review: {c.get('title', c['name'])} - {why[0]}")
+            return
         connected = [k for k, v in posting.accounts.status().items() if v["connected"] and k in p.get("platforms", [])]
-        if connected:
-            try:
-                c = ev.data
-                caption = (out_dir / c["folder"] / f"{c['name']}.txt").read_text(encoding="utf-8").strip()
-                done = posting.schedule(c["folder"], c["name"], connected, "best", caption)
-                rep.info("posting", "Scheduled " + ", ".join(
-                    f"{d['platform'].title()} {time.strftime('%a %H:%M', time.localtime(d['scheduled_at']))}"
-                    for d in done))
-            except Exception as exc:
-                rep.error("posting", f"Auto-schedule failed: {exc}")
+        if not connected:
+            rep.info("posting", f"{c.get('title', c['name'])} is cleared to post, but no account is connected")
+            return
+        try:
+            credit = (out_dir / c["folder"] / f"{c['name']}.txt").read_text(encoding="utf-8").strip()
+            caps = ((c.get("package") or {}).get("metadata") or {}).get("captions") or {}
+            done = []
+            for plat in connected:  # each platform gets its own caption
+                cap = caps.get(plat) or credit
+                if "Credit:" in credit and "Credit:" not in cap:
+                    cap += "\n\n" + credit[credit.index("Credit:"):]
+                done += posting.schedule(c["folder"], c["name"], [plat], "best", cap)
+            rep.info("posting", "Scheduled " + ", ".join(
+                f"{d['platform'].title()} {time.strftime('%a %H:%M', time.localtime(d['scheduled_at']))}"
+                for d in done))
+        except Exception as exc:
+            rep.error("posting", f"Auto-schedule failed: {exc}")
 
     rep.subscribe(auto_schedule)
 
@@ -178,6 +212,7 @@ def create_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        CREW.start()  # the crew's agents run for as long as the app is open
         for target, name in ((watcher, "upload-watcher"), (trend_scout, "trend-scouts"),
                              (video_scout, "video-scouts"), (lambda: posting.run_forever(stop), "publisher")):
             loops[name] = (target, threading.Thread(target=target, daemon=True, name=name))
@@ -303,7 +338,26 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.get("/api/agents")
     def agents() -> dict:
-        return {"size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot()}
+        return {"size": TEAM_SIZE, "busy": BOARD.busy(), "agents": BOARD.snapshot(),
+                "divisions": [{"key": k, "name": n} for k, n in DIVISIONS], "registry": CREW.registry.stats(),
+                "restarts": CREW.restarts}
+
+    @app.get("/api/clips/{folder}/{name}/package")
+    def clip_package(folder: str, name: str) -> dict:
+        f = out_dir / folder / f"{name}.package.json"
+        if not re.fullmatch(r"[\w.-]+", folder) or not re.fullmatch(r"clip_[\w-]+", name) or not f.exists():
+            raise HTTPException(404, "No package for this clip")
+        pkg = json.loads(f.read_text(encoding="utf-8"))
+        ok, why = publish_check({"name": name, "package": pkg, "review": pkg.get("export_review")}, cfg)
+        return {**pkg, "publish_ready": ok, "publish_blockers": why}
+
+    @app.get("/api/package/latest")
+    def latest_package() -> dict:
+        root = out_dir / "_packages"
+        runs = sorted(root.glob("*/package.json"), key=lambda f: f.stat().st_mtime) if root.exists() else []
+        if not runs:
+            raise HTTPException(404, "No package yet - press Get clips")
+        return {"folder": runs[-1].parent.name, **json.loads(runs[-1].read_text(encoding="utf-8"))}
 
     @app.get("/api/posting")
     def posting_status() -> dict:
