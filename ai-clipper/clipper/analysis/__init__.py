@@ -106,6 +106,11 @@ def analyze_video(cand: dict, cfg: Config, rep: Reporter, profile: dict | None,
         held = sum(c.status == "review" for c in approved)
         rep.info("analysis", f"Crew: {len(approved) - held} approved, {held} held for your review - "
                              f"{crew['coverage']['summary']} ({crew['agents_used']} agents, {crew['seconds']:.0f}s)")
+    from .boundaries import snap
+
+    for c in [*approved, *judged]:  # clean sentence edges, no clipped first or last word
+        c.start, c.end, notes = snap(transcript.get("words") or [], c.start, c.end,
+                                     float(a["min_clip_seconds"]), float(a["max_clip_seconds"]))
     (video.parent / "analysis.json").write_text(json.dumps(
         {"meta": {k: meta[k] for k in ("id", "title", "channel", "duration") if k in meta},
          "approved": [c.to_dict() for c in approved], "judged": [c.to_dict() for c in judged]}, indent=2,

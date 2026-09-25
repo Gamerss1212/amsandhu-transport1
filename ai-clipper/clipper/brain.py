@@ -44,7 +44,9 @@ class Brain:
 
     def already_made(self, video_id: str, start: float, end: float) -> bool:
         for m in self.data["made"]:
-            if m["video"] == video_id and min(end, m["end"]) - max(start, m["start"]) > 0.5 * (end - start):
+            # sharing more than a quarter of either clip is the same moment (a story's tail is not a new clip)
+            shared = min(end, m["end"]) - max(start, m["start"])
+            if m["video"] == video_id and shared > 0.25 * min(end - start, m["end"] - m["start"]):
                 return True
         return False
 

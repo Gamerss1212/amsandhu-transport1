@@ -64,11 +64,24 @@ def hashtags(text: str) -> set[str]:
     return {t.lower() for t in HASHTAG.findall(text or "")}
 
 
+def _num(v) -> float:
+    """A count from any shape the platforms send ("1.2M", "12,400", 5, None, garbage): never negative or NaN."""
+    if v is None or isinstance(v, bool):
+        return 0.0
+    if isinstance(v, (int, float)):
+        x = float(v)
+    else:
+        t = str(v).strip().replace(",", "").upper()
+        mult = {"K": 1e3, "M": 1e6, "B": 1e9}.get(t[-1:], 1.0)
+        try:
+            x = float(t[:-1] if mult != 1.0 else t) * mult
+        except ValueError:
+            return 0.0
+    return x if x == x and 0 <= x < 1e15 else 0.0
+
+
 def _int(v) -> int:
-    try:
-        return int(float(v))
-    except (TypeError, ValueError):
-        return 0
+    return int(_num(v))
 
 
 class TikTokWeb:
@@ -104,8 +117,10 @@ class TikTokWeb:
         try:
             r = self._get(f"https://www.tiktok.com/@{handle}")
             m = _DATA.search(r.text)
-            scope = json.loads(m.group(1))["__DEFAULT_SCOPE__"] if m else {}
-        except (requests.RequestException, ValueError, KeyError):
+            data = json.loads(m.group(1)) if m else {}
+            scope = data.get("__DEFAULT_SCOPE__") if isinstance(data, dict) else None
+            scope = scope if isinstance(scope, dict) else {}
+        except (requests.RequestException, ValueError, KeyError, TypeError):
             self._miss()
             return None
         ui = (scope.get("webapp.user-detail") or {}).get("userInfo") or {}
@@ -160,7 +175,7 @@ class TikTokWeb:
         names = {}
         for t in extra:
             if t.get("userUniqueId"):
-                shown = desc[int(t.get("start") or 0):int(t.get("end") or 0)].lstrip("@").strip()
+                shown = desc[_int(t.get("start")):_int(t.get("end"))].lstrip("@").strip()
                 names[str(t["userUniqueId"]).lower()] = shown
         ment = list(names)
         sponsored = any(t.get("isCommerce") for t in extra) or any(re.search(r"partner|sponsor|^ad$|^ads$", t)
@@ -172,8 +187,8 @@ class TikTokWeb:
             "caption": desc[:600], "hashtags": sorted(tags), "views": float(views),
             "likes": float(_int(st.get("diggCount"))), "comments": float(_int(st.get("commentCount"))),
             "shares": float(_int(st.get("shareCount"))), "saves": float(_int(st.get("collectCount"))),
-            "duration": float(_int((item.get("video") or {}).get("duration"))), "author": handle,
-            "author_name": prof.get("name") or handle, "author_followers": float(prof.get("followers") or 0) or None,
+            "duration": _num((item.get("video") or {}).get("duration")), "author": handle,
+            "author_name": prof.get("name") or handle, "author_followers": _num(prof.get("followers")) or None,
             "created_at": float(_int(item.get("createTime"))) or None,
             "music": ((item.get("music") or {}).get("title") or "")[:120],
             "mentions": [m for m in dict.fromkeys(ment) if m != handle],
@@ -266,7 +281,7 @@ class InstagramWeb:
                 "hashtags": sorted(hashtags(caption) - {"reels", "viral", "explore", "fyp", "explorepage"}),
                 "views": float(views), "likes": float(_int(likes)),
                 "comments": float(_int((n.get("edge_media_to_comment") or {}).get("count"))),
-                "shares": 0.0, "saves": 0.0, "duration": float(n.get("video_duration") or 0),
+                "shares": 0.0, "saves": 0.0, "duration": _num(n.get("video_duration")),
                 "author": handle, "author_name": acct["name"], "author_followers": float(followers) or None,
                 "created_at": float(_int(n.get("taken_at_timestamp"))) or None, "music": "",
                 "mentions": [m for m in mentions(caption) if m != handle],

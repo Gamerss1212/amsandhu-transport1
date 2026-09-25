@@ -38,25 +38,17 @@ def build_tables(submissions: list[tuple[str, dict]]) -> tuple[dict, dict]:
 
 
 def cluster(noms: list[dict], min_overlap: float = 0.35) -> list[list[dict]]:
-    noms = sorted(noms, key=lambda n: n["start"])
-    parent = list(range(len(noms)))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a in range(len(noms)):
-        for b in range(a + 1, len(noms)):
-            if noms[b]["start"] >= noms[a]["end"]:
-                break
-            if overlap((noms[a]["start"], noms[a]["end"]), (noms[b]["start"], noms[b]["end"])) >= min_overlap:
-                parent[find(b)] = find(a)
-    groups: dict[int, list] = {}
-    for k, n in enumerate(noms):
-        groups.setdefault(find(k), []).append(n)
-    return list(groups.values())
+    """Moments, strongest nomination first: a nomination joins the moment whose seed it overlaps, so two
+    different moments are never chained together through windows that happen to touch both."""
+    groups: list[tuple[tuple[float, float], list[dict]]] = []
+    for n in sorted(noms, key=lambda n: (-n["score"], n["start"])):
+        w = (n["start"], n["end"])
+        best = max(((overlap(seed, w), g) for seed, g in groups), key=lambda x: x[0], default=(0.0, None))
+        if best[1] is not None and best[0] >= min_overlap:
+            best[1].append(n)
+        else:
+            groups.append((w, [n]))
+    return [g for _, g in sorted(groups, key=lambda x: x[0][0])]
 
 
 def consensus(ev: Evidence, table: dict, all_scores: dict, noms: list[dict], full_roles: list[str]) -> list[dict]:
@@ -75,7 +67,11 @@ def consensus(ev: Evidence, table: dict, all_scores: dict, noms: list[dict], ful
         def backed(w):  # how many lenses say yes to exactly this window
             return sum(1 for x in view(w).values() if x and x[1] > 0) + sum((m["i"], m["j"]) == w for m in members)
 
-        rep = max(windows, key=lambda w: q(w) + 0.03 * backed(w))
+        # the moment's window: the best-rated window anywhere inside the moment (not only the exact windows
+        # someone nominated), with agreement as a small tie-breaker
+        lo_t, hi_t = min(m["start"] for m in members), max(m["end"] for m in members)
+        inside = [w for w in table.get("hook", {}) if ev.S[w[0]] >= lo_t - 0.01 and ev.E[w[1]] <= hi_t + 0.01]
+        rep = max(set(inside) | windows, key=lambda w: q(w) + 0.01 * backed(w))
         at = view(rep)
         nominated = {m["lens"]: m for m in members}
         supporters, dissenters, abstained, missing = [], [], [], []

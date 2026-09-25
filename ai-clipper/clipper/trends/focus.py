@@ -23,13 +23,20 @@ def load(cfg) -> dict:
     p = _file(cfg)
     if p.exists():
         try:
-            f.update({k: v for k, v in json.loads(p.read_text(encoding="utf-8")).items() if k in FIELDS})
+            saved = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(saved, dict):
+                f.update({k: v for k, v in saved.items() if k in FIELDS})
         except (OSError, ValueError):
-            pass
-    f.setdefault("name", "")
-    f["weight"] = max(0.0, min(1.0, float(f.get("weight", 0.6) or 0)))
+            pass  # a damaged file: keep config.yaml's focus
+    f["name"] = str(f.get("name") or "")[:80]
+    try:
+        f["weight"] = max(0.0, min(1.0, float(f.get("weight", 0.6))))
+    except (TypeError, ValueError):
+        f["weight"] = 0.6
     for k in FIELDS[2:]:
-        f[k] = [str(x).strip() for x in (f.get(k) or []) if str(x).strip()]
+        v = f.get(k) or []
+        v = [v] if isinstance(v, str) else v if isinstance(v, list) else []
+        f[k] = [str(x).strip()[:80] for x in v if x is not None and str(x).strip()][:200]
     return f
 
 

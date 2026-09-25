@@ -129,8 +129,11 @@ def emotion_why(ev, i, j, s):
 def story(ev: Evidence, I, J):
     nw = _nw(ev, I, J)
     last2 = np.maximum(I, J - 1)
+    # the payoff counts fully as the last line; a line after it (story over, clip still running) halves it
+    end_pay = _m(ev.count["lesson"][J] + ev.count["punch"][J], 1)
+    late_pay = 0.5 * _m(ev.count["lesson"][last2] + ev.count["punch"][last2], 1) * (last2 < J)
     s = _clip(0.3 * _m(ev.wsum("story", I, J), 2) + 0.25 * _m(ev.wsum("past", I, J) / nw * 6, 1)
-              + 0.2 * _m(ev.wsum("turn", I, J), 1) + 0.25 * _m(ev.wsum("lesson", last2, J) + ev.count["punch"][J], 1))
+              + 0.2 * _m(ev.wsum("turn", I, J), 1) + 0.25 * np.maximum(end_pay, late_pay))
     s = np.where(_dur(ev, I, J) < 20, s * 0.7, s)
     return s, _verdict(s, 0.52)
 

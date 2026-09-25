@@ -431,7 +431,8 @@ class Pipeline:
                 pkg = {"status": clip.status, "crew": clip.crew}
             item = {"folder": out_dir.name, "name": name, "title": title, "hook": hook, "category": clip.category,
                     "score": clip.final_score, "judge": clip.judge_score, "status": clip.status,
-                    "summary": clip.summary, "package": pkg, **info}
+                    "summary": clip.summary, "package": pkg, **info,
+                    "start": round(clip.start, 3), "end": round(clip.end, 3)}  # where it sits in the source
             rv = info.get("review", {})
             checked = "self-review passed" if rv.get("ok", True) else "review: " + "; ".join(rv.get("problems", []))
             if rv.get("fixed"):

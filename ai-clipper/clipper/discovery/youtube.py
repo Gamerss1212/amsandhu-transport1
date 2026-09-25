@@ -233,10 +233,10 @@ def creator_queries(profile: dict | None, focus: dict, famous: list[str], n: int
     w = focus.get("weight", 0.6)
     ranked = [c for c in ((profile or {}).get("live") or {}).get("creators", [])
               if (c.get("youtube") or {}).get("long_videos", 1)]
-    names = [c["name"] for c in ranked[:6]]
+    names = list(dict.fromkeys(c["name"] for c in ranked[:6] if c.get("name")))
     fp = [nm for nm, _ in focus_mod.people(focus) if nm not in names]
     names += rng.sample(fp, min(len(fp), round(4 * w)))
-    rest = [f for f in famous if f not in names]
+    rest = [f for f in dict.fromkeys(famous) if f and f not in names]
     names += rng.sample(rest, max(0, min(len(rest), n - len(names))))
     queries = [f"{nm} full episode" if nm in famous or re.search(r"podcast|show|theory|\blab\b", nm, re.I)
                else f"{nm} interview" for nm in names[:n]]
@@ -248,6 +248,11 @@ def rank_candidates(cands: list[dict], profile: dict | None, now: float | None =
     """Adds `rank_score` (0-100) and returns candidates best-first."""
     if not cands:
         return []
+    for c in cands:  # listings and APIs sometimes leave text fields empty (None)
+        for k in ("title", "description", "channel"):
+            c[k] = c.get(k) or ""
+        for k in ("views", "likes", "comments", "duration", "published"):
+            c[k] = float(c.get(k) or 0.0)
     now = now or time.time()
     famous = famous or []
     focus = focus or {"weight": 0.0, "keywords": [], "creators": []}

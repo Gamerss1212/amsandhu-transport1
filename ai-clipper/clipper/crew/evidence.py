@@ -136,12 +136,13 @@ class Evidence:
         return min(max(0, k), max(0, self.n - 1))
 
     def grid(self, i0: int, i1: int) -> tuple[np.ndarray, np.ndarray]:
-        """Every candidate clip that starts in sentences [i0, i1): each clean sentence start, with up to
-        four lengths between the minimum and maximum clip length, ending on a finished thought if possible.
+        """Every candidate clip that starts in sentences [i0, i1): each clean sentence start, ending at every
+        finished thought between the minimum and maximum clip length (and near seven target lengths).
         Each window is owned by exactly one section (the one its first sentence starts in)."""
         I, J = [], []
         lo, hi = self.min_s, self.max_s
-        targets = (lo, (2 * lo + hi) / 3, (lo + 2 * hi) / 3, hi)
+        # seven lengths from shortest to longest, so a complete story of any length has a window that fits it
+        targets = tuple(lo + (hi - lo) * k / 6 for k in range(7))
         for i in range(i0, min(i1, self.n)):
             if not self.start_ok[i]:
                 continue
@@ -151,7 +152,12 @@ class Evidence:
             jmin = max(jmin, i)
             if jmax < jmin:
                 continue
-            picks = set()
+            # every sentence that finishes a thought is a possible ending (capped for very dense transcripts),
+            # plus the nearest ending to each target length
+            closed = [j for j in range(jmin, jmax + 1) if not self.ends_open[j]]
+            if len(closed) > 24:
+                closed = closed[:: math.ceil(len(closed) / 24)]
+            picks = set(closed)
             for t in targets:
                 j = int(np.clip(np.searchsorted(self.E, s + t), jmin, jmax))
                 if j > jmin and abs(self.E[j - 1] - s - t) < abs(self.E[j] - s - t):
