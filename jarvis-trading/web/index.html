@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="jarvis-token" content="{{JARVIS_TOKEN}}">
+<title>Jarvis Trading</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2212%22 fill=%22none%22 stroke=%22%232ea8ff%22 stroke-width=%224%22/%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%225%22 fill=%22%238fe3ff%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-v="DORMANT">
+<canvas id="bg"></canvas><div class="scan"></div>
+<div id="haltBanner">⛔ HALT FLAG ON · NOTHING TRADES · CLEAR state/HALT BY HAND</div>
+
+<div id="app">
+  <header>
+    <div class="l">
+      <span>JARVIS OS <b>TRADING v3.0</b></span>
+      <span class="badge good" id="bOnline"><i></i>STATUS: <b>ONLINE</b></span>
+      <span class="badge info"><i></i>PAPER ONLY</span>
+    </div>
+    <div class="c" id="mkt"><span class="badge" id="bNyse"><i></i>NYSE —</span> <span class="badge" id="bCrypto"><i></i>CRYPTO —</span></div>
+    <div class="r">
+      <span class="badge" id="bData"><i></i>DATA —</span>
+      <span class="badge" id="bBrain"><i></i>AI —</span>
+      <span id="clock">—</span>
+    </div>
+  </header>
+  <div id="ticker"><span id="tickerText">LOADING MARKET DATA…</span></div>
+
+  <main>
+    <!-- ================= LEFT ================= -->
+    <section class="col">
+      <div class="panel">
+        <h3>PAPER PORTFOLIO <em id="pfAsOf">—</em></h3>
+        <div style="display:flex;gap:12px;align-items:center">
+          <canvas id="healthRing" width="120" height="120" style="width:64px;height:64px" aria-label="System health"></canvas>
+          <div>
+            <div class="lab">Equity (paper USD)</div>
+            <div class="big num" id="pfEq">—</div>
+            <div class="num" style="margin-top:3px;font-size:12px"><span id="pfDay">—</span> <span class="dim">today</span></div>
+          </div>
+        </div>
+        <canvas id="eqSpark" style="width:100%;height:30px;margin-top:4px" aria-label="Paper equity curve"></canvas>
+        <div class="kv" style="margin-top:4px">
+          <span>Realised</span><span id="pfReal">—</span>
+          <span>Unrealised</span><span id="pfUnr">—</span>
+          <span>Open positions</span><span id="pfOpen">—</span>
+          <span>Shadow trades (no money)</span><span id="pfShadow">—</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>MARKET WATCH <em id="mwSrc">—</em></h3>
+        <div id="watch"></div>
+      </div>
+
+      <div class="panel">
+        <h3>VOLATILITY GATE <em>NEXT 12H · SIZE NOT DIRECTION</em></h3>
+        <div id="volgate"><div class="dim">Training walk-forward model…</div></div>
+        <div class="vgfoot" id="vgfoot"></div>
+      </div>
+
+      <div class="panel grow">
+        <h3>RISK ENGINE <em id="killState">KILL SWITCH ARMED</em></h3>
+        <div id="risk"></div>
+      </div>
+    </section>
+
+    <!-- ================= CENTER ================= -->
+    <section id="center">
+      <div id="title"><h1 id="logo">JARVIS</h1><div>JUST A RATHER VERY INTELLIGENT SYSTEM</div></div>
+      <div id="stage">
+        <div class="minis l">
+          <div class="mini"><div class="lab">FLEET</div><div class="big num" id="mFleet">—</div><div class="sub" id="mFleetSub">bots active</div></div>
+          <div class="mini"><div class="lab">QUALITY GATE</div><div class="big num" id="mGate">—</div><div class="sub" id="mGateSub">roles passed</div></div>
+        </div>
+        <div id="orbwrap" title="Click or press Space to talk"><canvas id="orb"></canvas><canvas id="bloom"></canvas></div>
+        <div class="minis r">
+          <div class="mini"><div class="lab">SYSTEM UPTIME</div><div class="big num" id="mUp">—</div><div class="sub" id="mCycle">cycle —</div></div>
+          <div class="mini"><div class="lab">SIGNALS NOW</div><div class="big num" id="mSig">—</div><div class="sub" id="mBuy">BUY answers —</div></div>
+        </div>
+      </div>
+      <div id="voicebox">
+        <div id="vstate"><span class="dot"></span><span id="vstateText">SYSTEM STATUS · DORMANT</span></div>
+        <div id="sub">All systems operational. Say "Jarvis" or press Space.</div>
+        <canvas id="scope"></canvas>
+        <div id="sources"></div>
+      </div>
+      <div class="panel" id="chartPanel">
+        <h3>
+          <span id="chTitle">BTC-USD · 1H</span>
+          <span class="ctrls">
+            <span class="seg" id="barSeg"><button data-b="5m">5M</button><button data-b="15m">15M</button><button data-b="1h" class="on">1H</button></span>
+            <select id="chSym" aria-label="Symbol"></select>
+            <select id="chStrat" aria-label="Show strategy signals"><option value="">Signals: none</option></select>
+          </span>
+        </h3>
+        <div class="legend" id="chLegend">
+          <span><i class="box" style="background:var(--up)"></i>Up candle (filled)</span>
+          <span><i class="box hollow"></i>Down candle (hollow)</span>
+          <span><i style="background:var(--s3)"></i>EMA 20</span>
+          <span><i style="background:var(--ref);height:0;border-top:2px dashed var(--ref)"></i>VWAP</span>
+          <span>▲ strategy signal</span>
+          <span class="dim" id="chSrc"></span>
+        </div>
+        <div id="chartWrap"><canvas id="chart"></canvas><canvas id="chartHover"></canvas><div class="tip" id="chTip"></div></div>
+      </div>
+    </section>
+
+    <!-- ================= RIGHT ================= -->
+    <section class="col">
+      <div class="panel">
+        <h3>STRATEGY SYSTEMS <em id="stratCount">—</em></h3>
+        <div id="families"></div>
+      </div>
+      <div class="panel">
+        <h3>FLEET DIAGNOSTICS <em id="fleetEm">99 BOTS</em></h3>
+        <div id="matrix" role="img" aria-label="99 bot status matrix"></div>
+        <div class="mlegend" id="mlegend"></div>
+        <div class="kv" style="margin-top:6px" id="fleetKv"></div>
+      </div>
+      <div class="panel grow">
+        <h3>TARGETING SYSTEM <em id="lockSym">LOCKED ON —</em></h3>
+        <div class="target">
+          <canvas id="radar" width="216" height="216" aria-label="Signal radar"></canvas>
+          <div style="flex:1;min-width:0">
+            <div id="bullets">- WAIT</div>
+            <div class="kv" id="targetKv"></div>
+          </div>
+        </div>
+        <div class="note" id="targetNote" style="margin-top:6px"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="bottom">
+    <nav id="dock" aria-label="Pages">
+      <button class="dk" data-p="strategies" data-tip="STRATEGY LIBRARY"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></button>
+      <button class="dk" data-p="backtest" data-tip="BACKTEST LAB"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg></button>
+      <button class="dk" data-p="fleet" data-tip="FLEET · 99 BOTS"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+      <button class="dk" data-p="journal" data-tip="POSITIONS & JOURNAL"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg></button>
+      <button class="dk" data-p="alerts" data-tip="ALERTS & REMINDERS"><svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/></svg></button>
+      <button class="dk" data-p="memory" data-tip="MEMORY"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></button>
+      <button class="dk" data-p="activity" data-tip="ACTIVITY & AUDIT"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></button>
+      <button class="dk" data-p="help" data-tip="HELP  ?"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7M12 17h.01"/></svg></button>
+    </nav>
+    <div id="askbar">
+      <button id="mic" aria-label="Talk to Jarvis (Space)"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <input id="q" placeholder='Ask Jarvis anything — "what are my agents doing?", "should I buy BTC?", "backtest rsi2 on ETH"…' autocomplete="off" aria-label="Ask Jarvis">
+      <button class="btn" id="send">SEND</button>
+    </div>
+    <div id="right-tools">
+      <button class="btn sm" id="wakeBtn" title="Wake word on/off (W)">WAKE: ON</button>
+      <button class="btn sm" id="sfxBtn" title="Voice output on/off (V)">VOICE: ON</button>
+      <button class="btn halt" id="haltBtn" title="Emergency stop (H)">HALT</button>
+    </div>
+  </footer>
+</div>
+
+<section id="sheet" aria-modal="true" role="dialog">
+  <header><h2 id="sheetTitle">—</h2><div><button class="btn sm" id="sheetClose">CLOSE ✕</button></div></header>
+  <div id="sheetBody"></div>
+</section>
+<div id="toasts" aria-live="polite"></div>
+<div id="activate">
+  <div>
+    <div class="ring"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+    <h2>ACTIVATE JARVIS</h2>
+    <p>Click anywhere to power up voice and sound.</p>
+    <p class="dim">Use Chrome or Edge. Say "Jarvis…" or press Space to talk. Paper trading only.</p>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

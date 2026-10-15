@@ -1,0 +1,18 @@
+{
+  "owner_name": "Abhi",
+  "timezone": "America/Edmonton",
+  "paper_capital_usd": 10000,
+  "data_mode": "live",
+  "crypto_venue": "ndax",
+  "watchlist": ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "AAPL", "NVDA", "TSLA", "JPM"],
+  "fleet_cycle_seconds": 120,
+  "alerts_every_seconds": 30,
+  "daily_report_time_mt": "14:15",
+  "models": {"strong": "claude-opus-5-5", "fast": "claude-sonnet-5-5"},
+  "effort": {"strong": "medium", "fast": "low"},
+  "internet_research": true,
+  "quiet_hours_mt": ["22:00", "07:00"],
+  "retention_days": 30,
+  "phone": {"max_calls_per_hour": 2, "max_calls_per_day": 6, "calls_off": false},
+  "port": 8765
+}

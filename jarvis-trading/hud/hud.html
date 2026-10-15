@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVUS HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#010612; --panel:rgba(5,20,52,.55); --line:rgba(70,165,255,.30); --glow:#2ea8ff; --glow2:#8fe6ff; --text:#d9efff; --dim:#6f95c4;
+          --good:#3ddc97; --bad:#ffb347; --warn:#ffc857; --meme:#b57bff; --rgb:46,168,255; --head:"Orbitron","Eurostile","Segoe UI",sans-serif; --body:"Rajdhani","Segoe UI",system-ui,sans-serif; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); overflow:hidden; font-family:var(--body); font-weight:600; font-size:15px; }
+  #bg { position:fixed; inset:0; z-index:0; }
+  body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:6; background:repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.65) 100%); }
+  .scan { position:fixed; left:0; right:0; height:140px; top:-140px; z-index:5; pointer-events:none; background:linear-gradient(180deg, transparent, rgba(var(--rgb),.06), transparent); animation:scan 9s linear infinite; }
+  @keyframes scan { to { top:100%; } } @keyframes blink { 50% { opacity:.55; } }
+  #app { position:relative; z-index:2; height:100%; display:grid; grid-template-rows:auto auto 1fr auto; }
+  header { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:10px 28px 4px; font-size:12px; letter-spacing:.14em; color:var(--glow2); }
+  header .l span { margin-right:26px; } header .l b { color:var(--good); } header .c { color:#cfeaff; letter-spacing:.3em; position:relative; padding:0 120px; }
+  header .c::before, header .c::after { content:""; position:absolute; top:50%; width:100px; height:1px; background:linear-gradient(90deg,transparent,var(--glow)); } header .c::before { left:0; } header .c::after { right:0; transform:scaleX(-1); }
+  header .r { text-align:right; } header .r span { margin-left:26px; }
+  #ticker { overflow:hidden; white-space:nowrap; height:20px; line-height:20px; font-size:11px; letter-spacing:.2em; color:var(--glow); border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(0,0,0,.3); }
+  #ticker span { display:inline-block; padding-left:100%; animation:tick 44s linear infinite; } @keyframes tick { to { transform:translateX(-100%); } }
+  #banner { display:none; position:absolute; top:3px; background-color:#010612; left:50%; transform:translateX(-50%); z-index:9; padding:6px 26px; font:700 12px var(--head); letter-spacing:.28em; color:#fff; background-image:linear-gradient(90deg,#0a2a5c,#1f6fd1,#0a2a5c); text-shadow:0 0 12px #8fd3ff; white-space:nowrap; }
+  body.alert #banner { display:block; }
+  main { min-height:0; display:grid; grid-template-columns:minmax(290px,24vw) 1fr minmax(310px,26vw); gap:16px; padding:10px 26px 8px; }
+  .col { display:flex; flex-direction:column; gap:10px; min-height:0; } .col > .panel { flex:1 1 auto; }
+  .panel { position:relative; background:var(--panel); border:1px solid var(--line); padding:10px 14px 11px; backdrop-filter:blur(5px); min-height:0; overflow:hidden;
+           clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); box-shadow:inset 0 0 26px rgba(var(--rgb),.09); }
+  .panel::before { content:""; position:absolute; left:0; top:0; width:30px; height:2px; background:var(--glow2); box-shadow:0 0 10px var(--glow2); }
+  .panel h3 { margin:0 0 7px; font:700 13px var(--head); letter-spacing:.08em; color:#e6f6ff; display:flex; justify-content:space-between; align-items:center; text-shadow:0 0 10px rgba(var(--rgb),.7); }
+  .panel h3 em { font:600 10px var(--body); letter-spacing:.16em; font-style:normal; color:var(--glow2); }
+  .row { display:grid; grid-template-columns:62px 1fr 44px; gap:9px; align-items:center; font-size:13px; margin:5px 0; letter-spacing:.05em; } .row .n { color:#cfe6ff; } .row .v { text-align:right; color:#fff; font-variant-numeric:tabular-nums; }
+  .bar { height:6px; background:rgba(120,180,255,.13); border-radius:3px; overflow:hidden; } .bar > div { height:100%; width:0; background:linear-gradient(90deg,#0f6fd6,var(--glow2)); box-shadow:0 0 8px var(--glow); transition:width .6s; }
+  .big { font:800 clamp(24px,2.6vw,36px) var(--head); color:#fff; text-shadow:0 0 16px var(--glow); line-height:1; } .lab { font-size:11px; letter-spacing:.12em; color:var(--dim); }
+  .good { color:var(--good) !important; } .bad { color:var(--bad) !important; } .warn { color:var(--warn) !important; }
+  .on-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--good); box-shadow:0 0 8px var(--good); margin-right:6px; } .on-dot.off { background:#5b7396; box-shadow:none; }
+  .agent { display:grid; grid-template-columns:88px 1fr 66px; gap:8px; align-items:center; margin:4px 0; font-size:13px; } .agent .s { text-align:right; font-size:11px; letter-spacing:.1em; }
+  #matrix { display:grid; grid-template-columns:repeat(33,1fr); gap:2px; margin-top:7px; } #matrix i { aspect-ratio:1; border-radius:1px; background:#1a2d52; display:block; }
+  #matrix i.WATCH { background:var(--warn); } #matrix i.RETRAIN { background:#2f7fe0; } #matrix i.NEEDS { background:#4a5f8a; } #matrix i.MEME { background:var(--meme); } #matrix i.PARKED { background:#16233f; } #matrix i.ACTIVE { background:var(--good); } #matrix i.paused { outline:1px solid var(--bad); }
+  canvas { display:block; max-width:100%; }
+  .mrow { display:grid; grid-template-columns:70px 1fr 70px 62px; gap:8px; align-items:center; margin:7px 0; font-size:14px; } .mrow .sym { color:#fff; letter-spacing:.04em; } .mrow .px { text-align:right; font-variant-numeric:tabular-nums; color:#d9efff; }
+  .chg { text-align:center; border:1px solid var(--glow); padding:2px 0; font-size:13px; background:rgba(var(--rgb),.12); } .chg.dn { border-color:var(--bad); color:var(--bad); background:rgba(255,179,71,.1); } .chg.up { color:#9ff2ff; }
+  #center { position:relative; min-height:0; display:flex; flex-direction:column; align-items:center; }
+  #title { text-align:center; margin-top:2px; } #title h1 { margin:0; font:900 clamp(40px,5.2vw,76px) var(--head); letter-spacing:.04em; color:var(--glow); text-shadow:0 0 22px var(--glow),0 0 60px rgba(var(--rgb),.6); line-height:1; position:relative; }
+  #title h1.glitch { transform:translateX(2px); filter:drop-shadow(-3px 0 #00f0ff) drop-shadow(3px 0 #1a6bff); } #title div { letter-spacing:.5em; font-size:clamp(11px,1.1vw,15px); color:var(--glow2); margin-top:4px; }
+  #stage { position:relative; flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; }
+  #orbwrap { height:100%; max-height:100%; aspect-ratio:1; max-width:100%; position:relative; } #orbwrap canvas { position:absolute; inset:0; width:100%; height:100%; } #bloom { filter:blur(16px) brightness(1.6); mix-blend-mode:screen; opacity:.85; pointer-events:none; }
+  .mini { position:absolute; width:clamp(110px,10.5vw,170px); padding:8px 12px; background:var(--panel); border:1px solid var(--line); box-shadow:inset 0 0 18px rgba(var(--rgb),.1); }
+  .mini .lab { margin-bottom:2px; } .mini .big { font-size:clamp(18px,2vw,28px); }
+  #holo { position:absolute; left:1%; bottom:9%; width:clamp(90px,9vw,140px); } #globe { position:absolute; left:3%; bottom:-2%; width:clamp(60px,5vw,84px); } #net { position:absolute; right:0; top:40%; width:clamp(110px,10vw,160px); opacity:.9; }
+  #voicebox { position:relative; width:min(560px,92%); margin:6px auto 0; padding:8px 16px 8px; text-align:center; background:var(--panel); border:1px solid var(--line); box-shadow:inset 0 0 24px rgba(var(--rgb),.12), 0 0 24px rgba(var(--rgb),.15); }
+  #state { font:700 12px var(--head); letter-spacing:.3em; color:var(--glow2); text-shadow:0 0 10px var(--glow); } #sub { min-height:42px; font:700 clamp(16px,1.6vw,22px) var(--body); letter-spacing:.06em; color:#fff; text-shadow:0 0 12px rgba(var(--rgb),.7); padding-top:3px; line-height:1.25; }
+  #sub.heard { color:var(--glow2); font-style:italic; } #sub .cur { display:inline-block; width:8px; height:16px; background:var(--glow2); margin-left:2px; vertical-align:-2px; animation:blink 1s steps(2) infinite; }
+  #scope { width:100%; height:34px; }
+  #bottom { display:flex; gap:12px; align-items:center; padding:8px 26px 12px; border-top:1px solid var(--line); background:rgba(1,6,18,.82); }
+  #mic { flex:none; width:52px; height:52px; border-radius:50%; border:1px solid var(--glow); background:rgba(var(--rgb),.14); color:var(--glow2); font-size:20px; cursor:pointer; box-shadow:0 0 16px rgba(var(--rgb),.4); }
+  #mic.live { background:var(--glow); color:#001; animation:ring 1.3s infinite; } @keyframes ring { 0% { box-shadow:0 0 0 0 rgba(var(--rgb),.7); } 100% { box-shadow:0 0 0 22px rgba(var(--rgb),0); } }
+  #q { flex:1; min-width:0; height:42px; border:1px solid var(--line); background:rgba(0,0,0,.4); color:var(--text); padding:0 14px; font:600 15px var(--body); letter-spacing:.05em; }
+  #q:focus { outline:none; border-color:var(--glow2); box-shadow:0 0 14px rgba(var(--rgb),.4); }
+  .ib { flex:none; width:58px; height:52px; border:1px solid var(--line); background:rgba(var(--rgb),.06); color:var(--dim); cursor:pointer; font-family:var(--body); font-weight:700; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px)); }
+  .ib i { font-style:normal; font-size:19px; line-height:1; } .ib span { font-size:9px; letter-spacing:.12em; } .ib.on { color:var(--glow2); border-color:var(--glow2); box-shadow:inset 0 0 12px rgba(var(--rgb),.3); } .ib:hover { background:rgba(var(--rgb),.22); color:#fff; }
+  #drawer { position:fixed; top:0; right:-440px; width:420px; max-width:92vw; height:100%; z-index:15; background:rgba(2,10,28,.96); border-left:1px solid var(--glow); padding:18px; overflow:auto; transition:right .35s; box-shadow:-20px 0 60px rgba(0,0,0,.6); }
+  #drawer.show { right:0; } #drawer h3 { font:700 13px var(--head); letter-spacing:.1em; margin:14px 0 8px; color:var(--glow2); }
+  #log { list-style:none; padding:0; margin:0; font-size:14px; } #log li { padding:5px 8px; border-left:2px solid var(--line); margin-bottom:4px; background:rgba(0,0,0,.25); line-height:1.3; }
+  #log li.you { border-color:var(--warn); } #log li.jarvis { border-color:var(--glow); } #log li.tool { border-color:var(--good); color:var(--dim); } #log time { color:var(--dim); font-size:11px; margin-right:6px; }
+  #sitelist a { display:block; color:var(--glow2); text-decoration:none; padding:3px 0; } .none { color:var(--dim); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:13px; } .kv span:nth-child(odd) { color:var(--dim); } .kv span:nth-child(even) { text-align:right; color:var(--glow2); }
+  #boot, #help { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; justify-content:center; transition:opacity .7s; }
+  #boot { background:#01040a; align-items:flex-start; padding:0 12vw; font:600 16px var(--body); color:var(--glow2); cursor:pointer; } #boot div { opacity:0; margin:3px 0; letter-spacing:.14em; } #boot .ok { color:var(--good); }
+  #act { position:fixed; inset:0; z-index:19; display:flex; align-items:center; justify-content:center; background:rgba(1,5,16,.55); backdrop-filter:blur(2px); cursor:pointer; font:700 15px var(--head); letter-spacing:.4em; color:var(--glow2); text-shadow:0 0 14px var(--glow); animation:blink 1.6s ease-in-out infinite; transition:opacity .5s; text-align:center; padding:0 20px; }
+  #help { display:none; background:rgba(1,5,16,.94); align-items:center; font-size:17px; line-height:1.8; } #help.show { display:flex; } #help h2 { font-family:var(--head); letter-spacing:.4em; color:var(--glow2); } #help b { color:var(--glow2); }
+
+  /* ===== v5 VFX ===== */
+  body:not(.ready) main > *, body:not(.ready) #bottom, body:not(.ready) header, body:not(.ready) #ticker { opacity:0; }
+  .ready header, .ready #ticker { animation:inT .9s both; }
+  .ready main > .col:first-child .panel { animation:inL .9s cubic-bezier(.2,.8,.2,1) both; }
+  .ready main > .col:last-child .panel { animation:inR .9s cubic-bezier(.2,.8,.2,1) both; }
+  .ready #center { animation:inC 1.4s cubic-bezier(.2,.8,.2,1) both; } .ready #bottom { animation:inB .9s .7s both; }
+  .col .panel:nth-child(1) { animation-delay:.15s !important; } .col .panel:nth-child(2) { animation-delay:.3s !important; } .col .panel:nth-child(3) { animation-delay:.45s !important; } .col .panel:nth-child(4) { animation-delay:.6s !important; } .col .panel:nth-child(5) { animation-delay:.75s !important; }
+  @keyframes inL { from { opacity:0; transform:translateX(-70px) skewX(6deg); filter:blur(6px); } to { opacity:1; transform:none; filter:none; } }
+  @keyframes inR { from { opacity:0; transform:translateX(70px) skewX(-6deg); filter:blur(6px); } to { opacity:1; transform:none; filter:none; } }
+  @keyframes inC { from { opacity:0; transform:scale(.8); filter:blur(8px) brightness(2.5); } to { opacity:1; transform:none; filter:none; } }
+  @keyframes inB { from { opacity:0; transform:translateY(40px); } to { opacity:1; transform:none; } } @keyframes inT { from { opacity:0; transform:translateY(-20px); } to { opacity:1; transform:none; } }
+  .panel::after { content:""; position:absolute; top:0; bottom:0; width:70px; left:-90px; background:linear-gradient(90deg,transparent,rgba(var(--rgb),.16),transparent); animation:psweep 8s linear infinite; pointer-events:none; }
+  .col .panel:nth-child(2)::after { animation-delay:1.3s; } .col .panel:nth-child(3)::after { animation-delay:2.6s; } .col .panel:nth-child(4)::after { animation-delay:3.9s; } .col .panel:nth-child(5)::after { animation-delay:5.2s; }
+  @keyframes psweep { 0% { left:-90px; } 35%,100% { left:110%; } }
+  .panel { transition:box-shadow .3s, border-color .3s; } .panel:hover { border-color:var(--glow2); box-shadow:inset 0 0 34px rgba(var(--rgb),.22), 0 0 22px rgba(var(--rgb),.25); }
+  .bar > div { position:relative; } .bar > div::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent); width:40%; animation:shine 2.4s linear infinite; } @keyframes shine { from { transform:translateX(-100%); } to { transform:translateX(320%); } }
+  .on-dot, #stat.good { animation:pulseGlow 1.8s ease-in-out infinite; } @keyframes pulseGlow { 50% { opacity:.55; } }
+  .big { animation:flick 5s infinite; } @keyframes flick { 0%,93%,100% { opacity:1; } 94% { opacity:.55; } 96% { opacity:.9; } 97% { opacity:.4; } }
+  #flash { position:fixed; inset:0; z-index:18; pointer-events:none; opacity:0; background:radial-gradient(circle at 50% 48%, rgba(220,248,255,.95), rgba(var(--rgb),.5) 40%, transparent 75%); }
+  #flash.go { animation:flash 1.1s ease-out; } @keyframes flash { 0% { opacity:1; } 100% { opacity:0; } }
+  #app.shake { animation:shake .6s; } @keyframes shake { 0%,100% { transform:none; } 10% { transform:translate(-8px,4px); } 20% { transform:translate(7px,-5px); } 30% { transform:translate(-6px,-3px); } 40% { transform:translate(5px,5px); } 50% { transform:translate(-4px,2px); } 70% { transform:translate(3px,-2px); } }
+  #app.gl { filter:drop-shadow(3px 0 rgba(0,240,255,.8)) drop-shadow(-3px 0 rgba(30,100,255,.8)); transform:translateX(2px); }
+  .rip { position:fixed; z-index:30; width:10px; height:10px; margin:-5px 0 0 -5px; border:2px solid var(--glow2); border-radius:50%; pointer-events:none; animation:rip .7s ease-out forwards; } @keyframes rip { to { transform:scale(11); opacity:0; border-width:1px; } }
+  #title h1 { animation:titleGlow 4s ease-in-out infinite; } @keyframes titleGlow { 50% { text-shadow:0 0 34px var(--glow2),0 0 90px rgba(var(--rgb),.9); } }
+  #voicebox::before, #voicebox::after { content:""; position:absolute; width:14px; height:14px; border:2px solid var(--glow2); } #voicebox::before { left:-1px; top:-1px; border-right:0; border-bottom:0; } #voicebox::after { right:-1px; bottom:-1px; border-left:0; border-top:0; }
+  body.listening #voicebox { box-shadow:inset 0 0 24px rgba(var(--rgb),.2), 0 0 40px rgba(var(--rgb),.55); }
+  @media (max-width:1100px) { html,body { overflow:auto; } #app { display:block; height:auto; } main { display:flex; flex-direction:column; } #stage { height:440px; flex:none; } #bottom { flex-wrap:wrap; position:sticky; bottom:0; z-index:8; } #q { flex:1 1 calc(100% - 70px); } .ib { flex:1; } header { grid-template-columns:1fr; text-align:center; } header .c { display:none; } header .r { text-align:center; } #holo,#globe,#net,.mini { display:none; } #act { letter-spacing:.15em; font-size:12px; } }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas><div class="scan"></div>
+<div id="boot"></div><div id="flash"></div>
+<div id="act" style="display:none">TAP ANYWHERE · ACTIVATE VOICE</div>
+<div id="help" onclick="this.classList.remove('show')"><div style="margin:auto;max-width:660px"><h2>JUST TALK</h2>
+  Say <b>“Jarvus, …”</b> any time. After an answer you can keep talking for 10 seconds without the name.<br><br>
+  <b>status</b> · paper numbers &nbsp;|&nbsp; <b>how did today go</b> · report<br><b>halt everything</b> · emergency stop &nbsp;|&nbsp; <b>pause A073</b> · pause one bot<br>
+  <b>build a website for a barber shop</b> · builds and opens it<br><b>anything else</b> · ask normally<br><br>
+  Keys: Space = talk · W = wake word · M = mute · L = log · H = halt · ? = this help<br>Paper only. Jarvus cannot trade.<br><br><span style="color:var(--dim)">click to close</span></div></div>
+<aside id="drawer"><h3>ACTIVITY · LIVE</h3><ul id="log"></ul><h3>WEBSITES BUILT · <span id="sites">0</span></h3><div id="sitelist"><div class="none">Say "build a website for…"</div></div>
+  <h3>SYSTEM</h3><div class="kv"><span>FPS</span><span id="fps">--</span><span>SERVER PING</span><span id="ping">--</span><span>UPTIME</span><span id="up">--</span><span>MODEL</span><span id="model">--</span><span>EARS</span><span id="ears">--</span><span>VOICE</span><span id="vname">--</span><span>QUESTIONS</span><span id="asked">0</span></div>
+  <div class="bar" style="margin-top:8px"><div id="micbar"></div></div><div class="lab">MIC LEVEL</div><div style="margin-top:14px" class="lab">press L to close</div></aside>
+<div id="app">
+  <header>
+    <div class="l"><span>JARVUS OS v6</span><span>STATUS: <b id="stat">ONLINE</b></span><span id="chat">CHAT OFF</span></div>
+    <div class="c">PAPER MODE · LOCKED</div>
+    <div class="r"><span id="nyse">NYSE --</span><span id="date">--</span><span id="clock">--:--</span></div>
+  </header>
+  <div id="ticker"><span id="tick">LOADING…</span></div>
+  <div id="banner">▲ HALT ENGAGED · NOTHING TRADES · RESTART ONLY AT THE KEYBOARD ▲</div>
+  <main>
+    <div class="col">
+      <section class="panel"><h3>SYSTEM DIAGNOSTICS <em id="sysok">NOMINAL</em></h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><canvas id="pulse" width="120" height="80" style="width:70px"></canvas><div style="flex:1"><div class="big" id="health">--</div><div class="lab">SYSTEM HEALTH</div></div><canvas id="hring" width="140" height="140" style="width:74px"></canvas></div></section>
+      <section class="panel"><h3>CPU USAGE <em id="cpunote"></em></h3><div id="cpu"></div></section>
+      <section class="panel"><h3>MEMORY USAGE</h3><div class="row"><span class="n">RAM</span><div class="bar"><div id="ramb"></div></div><span class="v" id="ramv">--</span></div><div class="row"><span class="n">SWAP</span><div class="bar"><div id="swapb"></div></div><span class="v" id="swapv">--</span></div></section>
+      <section class="panel"><h3>PAPER PORTFOLIO <em id="rep">--</em></h3>
+        <div class="row" style="grid-template-columns:1fr auto"><span class="n">P&amp;L TODAY</span><span class="v" id="pnl">--</span></div><div class="row" style="grid-template-columns:1fr auto"><span class="n">P&amp;L ALL-TIME</span><span class="v" id="pnlall">--</span></div><div class="row" style="grid-template-columns:1fr auto"><span class="n">TRADES · W / L</span><span class="v" id="trades">--</span></div>
+        <canvas id="spark" width="560" height="120" style="width:100%;height:50px"></canvas></section>
+      <section class="panel"><h3>AI AGENTS <em id="mcount">--</em></h3>
+        <div class="agent"><span>JARVUS</span><div class="bar"><div id="a1b"></div></div><span class="s" id="a1">--</span></div>
+        <div class="agent"><span>VOICE ROUTER</span><div class="bar"><div id="a2b"></div></div><span class="s" id="a2">--</span></div>
+        <div class="agent"><span>BOT FLEET</span><div class="bar"><div id="a3b"></div></div><span class="s" id="a3">--</span></div>
+        <div id="matrix"></div><div class="lab" style="margin-top:5px">QUALITY GATE · PASSED <b id="gate" style="color:var(--glow2)">0 / 99</b></div></section>
+    </div>
+    <div id="center">
+      <div id="title"><h1 id="logo">JARVUS</h1><div>AI TRADING SYSTEM</div></div>
+      <div id="stage">
+        <div class="mini" style="left:0;top:6%"><div class="lab">GATE PASSED</div><div class="big" id="gateBig">--</div><div class="lab">OF 99 BOTS</div></div>
+        <div class="mini" style="left:0;top:27%"><div class="lab">ON WATCH</div><div class="big" id="watchBig">--</div><div class="lab">BOTS</div></div>
+        <div class="mini" style="right:0;top:6%"><div class="lab">SYSTEM UPTIME</div><div class="big" id="upBig" style="font-size:clamp(14px,1.5vw,22px)">--</div></div>
+        <div class="mini" style="right:0;top:22%"><div class="lab">BOTS IN FLEET</div><div class="big" id="fleetBig">--</div></div>
+        <div class="mini" style="right:0;top:36%;display:none"></div>
+        <div id="orbwrap"><canvas id="orb" width="1400" height="1400"></canvas><canvas id="bloom" width="360" height="360"></canvas></div>
+        <canvas id="globe" width="100" height="100"></canvas><canvas id="net" width="200" height="200"></canvas>
+      </div>
+      <div id="voicebox"><div id="state">STANDING BY</div><div id="sub"></div><canvas id="scope" width="560" height="60"></canvas></div>
+    </div>
+    <div class="col">
+      <section class="panel" style="flex:0 0 auto"><h3>MARKET WATCH <em id="mfeed">CONNECTING</em></h3><div id="mw"></div></section>
+      <section class="panel" style="flex:1 1 0"><h3>MARKET ANALYSIS <em>BTC/USD · 15 MIN</em></h3><canvas id="candles" width="640" height="330" style="width:100%;height:calc(100% - 26px)"></canvas></section>
+      <section class="panel" style="flex:0 0 auto"><h3>RISK MONITOR <em id="riskst">--</em></h3>
+        <div style="display:flex;gap:12px;align-items:center"><canvas id="radar" width="160" height="160" style="width:92px;flex:none"></canvas>
+          <div style="flex:1"><div class="row" style="grid-template-columns:1fr auto;margin:3px 0"><span class="n">DAY P&amp;L / LIMIT</span><span class="v" id="rk1">--</span></div><div class="row" style="grid-template-columns:1fr auto;margin:3px 0"><span class="n">TRADES / MAX</span><span class="v" id="rk2">--</span></div><div class="row" style="grid-template-columns:1fr auto;margin:3px 0"><span class="n">BOTS PAUSED</span><span class="v" id="rk3">--</span></div><div class="row" style="grid-template-columns:1fr auto;margin:3px 0"><span class="n">KILL SWITCH</span><span class="v" id="rk4">--</span></div></div></div></section>
+    </div>
+  </main>
+  <div id="bottom">
+    <button id="mic" title="Talk (Space)">🎙</button>
+    <input id="q" placeholder='Just say “Jarvus …”  —  or type here' autocomplete="off">
+    <button class="ib on" id="wake"><i>◉</i><span>WAKE ON</span></button><button class="ib on" id="voice"><i>♪</i><span>VOICE ON</span></button><button class="ib on" id="sfx"><i>≋</i><span>SFX ON</span></button>
+    <button class="ib" id="logb"><i>☰</i><span>LOG</span></button><button class="ib" id="helpb"><i>?</i><span>HELP</span></button><button class="ib" id="halt" style="color:var(--glow2);border-color:var(--glow2)"><i>⏻</i><span>HALT</span></button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let mode = "idle", speakOn = true, wakeOn = true, sfxOn = true, level = 0, micLevel = 0, mx = 0, my = 0, asked = 0, activated = false, convUntil = 0, fps = 0, frames = 0, voiceName = "--";
+const rgb = () => getComputedStyle(document.body).getPropertyValue("--rgb").trim();
+
+/* ---------- sounds ---------- */
+let ac; function beep(f = 660, d = .08, type = "sine", v = .05, f2) { if (!sfxOn) return; try { ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+  const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f, ac.currentTime); if (f2) o.frequency.exponentialRampToValueAtTime(f2, ac.currentTime + d);
+  g.gain.setValueAtTime(v, ac.currentTime); g.gain.exponentialRampToValueAtTime(.0001, ac.currentTime + d); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + d); } catch (e) {} }
+const sfx = { on: () => { beep(440, .1, "triangle", .05, 880); setTimeout(() => beep(880, .1, "triangle", .04, 1320), 90); }, ping: () => beep(1200, .05, "sine", .03), alarm: () => { beep(300, .25, "sawtooth", .06); setTimeout(() => beep(300, .25, "sawtooth", .06), 300); }, heard: () => beep(900, .07, "triangle", .04, 1400) };
+
+/* ---------- boot ---------- */
+(function boot() {
+  const lines = ["JARVUS OS v6 .......... ONLINE", "PAPER MODE ............ LOCKED", "KILL SWITCH ........... ARMED", "VOICE ROUTER .......... FIXED LIST · NO AI", "TRADING TOOLS ......... NONE (READ-ONLY)", "BOT FLEET ............. LOADING 99 AGENTS", "REACTOR CORE .......... READY"];
+  const el = $("boot"); lines.forEach((t, i) => { const d = document.createElement("div"); d.textContent = "> " + t; if (i > 1 && i < 6) d.className = "ok"; el.appendChild(d); setTimeout(() => d.style.opacity = 1, 200 + i * 230); });
+  const end = () => { el.style.opacity = 0; setTimeout(() => el.remove(), 700); $("act").style.display = activated ? "none" : "flex"; logoGlitch(); document.body.classList.add("ready"); introStart = performance.now(); scramble($("logo"), "JARVUS"); }; setTimeout(end, 200 + lines.length * 230 + 400); el.onclick = end;
+})();
+function logoGlitch() { const l = $("logo"); l.classList.add("glitch"); setTimeout(() => l.classList.remove("glitch"), 260); } setInterval(() => { if (Math.random() < .35) logoGlitch(); }, 6000);
+
+/* ---------- background: hex grid + particle network ---------- */
+const bg = $("bg"), bx = bg.getContext("2d"); let P = [];
+function sizeBg() { bg.width = innerWidth; bg.height = innerHeight; P = Array.from({ length: Math.min(100, Math.floor(innerWidth * innerHeight / 15000)) }, () => ({ x: Math.random() * bg.width, y: Math.random() * bg.height, vx: (Math.random() - .5) * .22, vy: (Math.random() - .5) * .22, z: Math.random() })); }
+addEventListener("resize", sizeBg); sizeBg(); addEventListener("mousemove", e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+function drawBg(t) {
+  const c = rgb(); bx.clearRect(0, 0, bg.width, bg.height); const g = bx.createRadialGradient(bg.width / 2, bg.height * .45, 0, bg.width / 2, bg.height * .45, bg.width * .7); g.addColorStop(0, `rgba(${c},.17)`); g.addColorStop(1, "rgba(1,5,16,0)"); bx.fillStyle = g; bx.fillRect(0, 0, bg.width, bg.height);
+  bx.strokeStyle = `rgba(${c},.05)`; bx.lineWidth = 1; const hs = 46, hh = hs * .866; // hex grid
+  for (let r = 0, y = 0; y < bg.height + hh; r++, y += hh) for (let x = (r % 2) * hs * .75; x < bg.width + hs; x += hs * 1.5) { bx.beginPath(); for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; bx[k ? "lineTo" : "moveTo"](x + Math.cos(a) * hs / 2, y + Math.sin(a) * hs / 2); } bx.closePath(); bx.stroke(); }
+  for (const p of P) { p.x += p.vx; p.y += p.vy; if (p.x < 0) p.x = bg.width; if (p.x > bg.width) p.x = 0; if (p.y < 0) p.y = bg.height; if (p.y > bg.height) p.y = 0; }
+  for (let i = 0; i < P.length; i++) { const a = P[i], ax = a.x + mx * 40 * a.z, ay = a.y + my * 40 * a.z; bx.fillStyle = `rgba(${c},${.25 + a.z * .5})`; bx.fillRect(ax, ay, 1.5 + a.z, 1.5 + a.z);
+    for (let j = i + 1; j < P.length; j++) { const b = P[j], dx = a.x - b.x, dy = a.y - b.y, d = dx * dx + dy * dy; if (d < 10000) { bx.strokeStyle = `rgba(${c},${.15 * (1 - d / 10000)})`; bx.beginPath(); bx.moveTo(ax, ay); bx.lineTo(b.x + mx * 40 * b.z, b.y + my * 40 * b.z); bx.stroke(); } } }
+}
+
+/* ---------- the reactor core ---------- */
+const cv = $("orb"), cx = cv.getContext("2d");
+const BARS = 120, bars = new Float32Array(BARS), TXT = "PAPER MODE LOCKED  •  KILL SWITCH ARMED  •  NO TRADING TOOLS  •  VOICE ROUTER: FIXED LIST  •  ";
+const arcs = [[410, 1, .0018, 1.1, 14], [410, 3.4, -.0014, .7, 10], [375, 0, .0026, .5, 7], [455, 2, -.0009, 1.6, 5]].map(a => ({ r: a[0], a: a[1], s: a[2], len: a[3], w: a[4] }));
+let rotW = 0, sweep = 0;
+const ARCRING = (x, r, a0, a1, w, st) => { x.strokeStyle = st; x.lineWidth = w; x.beginPath(); x.arc(500, 500, r, a0, a1); x.stroke(); };
+const wedge = (x, r1, r2, a0, a1) => { x.beginPath(); x.arc(500, 500, r1, a0, a1); x.arc(500, 500, r2, a1, a0, true); x.closePath(); };
+const dots = Array.from({ length: 90 }, (_, i) => i);
+function drawOrbCore(t) {
+  const W = 1000, C = 500, c = rgb(); cx.globalCompositeOperation = "lighter";
+  const target = { idle: .12, listening: .3 + micLevel * .9, thinking: .55, speaking: .8 }[mode];
+  level += (target + Math.sin(t / (mode === "speaking" ? 70 : 420)) * (mode === "speaking" ? .18 : .06) - level) * .09;
+  rotW += .0016 * (1 + level * 4);
+  // 1. ambient glow
+  let g = cx.createRadialGradient(C, C, 0, C, C, 360); g.addColorStop(0, `rgba(190,245,255,${.5 + level * .3})`); g.addColorStop(.35, `rgba(${c},.26)`); g.addColorStop(1, `rgba(${c},0)`); cx.fillStyle = g; cx.beginPath(); cx.arc(C, C, 360, 0, 6.29); cx.fill();
+  // 2. outer double ring, fine ticks, degree labels, rotating text
+  ARCRING(cx, 480, 0, 6.29, 2.5, `rgba(${c},.65)`); ARCRING(cx, 470, 0, 6.29, 1, `rgba(${c},.35)`);
+  cx.save(); cx.translate(C, C); cx.strokeStyle = `rgba(${c},.55)`; cx.lineWidth = 1; for (let i = 0; i < 180; i++) { cx.rotate(6.2832 / 180); const big = i % 15 === 0, mid = i % 5 === 0; cx.lineWidth = big ? 2 : 1; cx.beginPath(); cx.moveTo(0, -470); cx.lineTo(0, -470 + (big ? 18 : mid ? 11 : 6)); cx.stroke(); }
+  cx.font = "600 12px Rajdhani, monospace"; cx.fillStyle = `rgba(190,235,255,.8)`; cx.textAlign = "center"; for (let i = 0; i < 12; i++) { cx.save(); cx.rotate(i * Math.PI / 6); cx.fillText(String(i * 30).padStart(3, "0"), 0, -438); cx.restore(); }
+  cx.rotate(-t / 14000); cx.font = "13px Rajdhani, monospace"; cx.fillStyle = `rgba(${c},.65)`; const n = TXT.length, step = 6.2832 / (n * 2.2); for (let i = 0; i < n * 2; i++) { cx.save(); cx.rotate(i * step); cx.fillText(TXT[i % n], 0, -414); cx.restore(); } cx.restore();
+  // 3. thick arcs with end caps
+  for (const a of arcs) { a.a += a.s * (1 + level * 3); ARCRING(cx, a.r, 0, 6.29, 1.2, `rgba(${c},${.2 + level * .15})`); cx.shadowColor = `rgb(${c})`; cx.shadowBlur = 16; ARCRING(cx, a.r, a.a, a.a + a.len, a.w, `rgba(150,230,255,${.75 + level * .25})`); cx.shadowBlur = 0;
+    for (const e of [a.a, a.a + a.len]) { const x = C + Math.cos(e) * a.r, y = C + Math.sin(e) * a.r; cx.fillStyle = "rgba(230,250,255,.95)"; cx.beginPath(); cx.arc(x, y, a.w * .55, 0, 6.29); cx.fill(); } }
+  // 4. dotted ring + brackets
+  cx.fillStyle = `rgba(${c},.85)`; for (const i of dots) { const a = i / 90 * 6.2832 - t / 9000, big = i % 10 === 0; cx.beginPath(); cx.arc(C + Math.cos(a) * 395, C + Math.sin(a) * 395, big ? 3.2 : 1.6, 0, 6.29); cx.fill(); }
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 - Math.PI / 4; cx.strokeStyle = "rgba(190,240,255,.9)"; cx.lineWidth = 3; cx.beginPath(); cx.arc(C, C, 415, a - .09, a + .09); cx.stroke(); cx.beginPath(); cx.arc(C, C, 375, a - .09, a + .09); cx.stroke(); }
+  // cardinal nodes
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 - Math.PI / 2, x = C + Math.cos(a) * 395, y = C + Math.sin(a) * 395; cx.fillStyle = k === 0 ? "rgba(220,250,255,1)" : `rgba(${c},.95)`; cx.beginPath(); cx.arc(x, y, k === 0 ? 11 : 6, 0, 6.29); cx.fill(); if (k === 0) { cx.strokeStyle = "rgba(190,245,255,.9)"; cx.lineWidth = 2; cx.beginPath(); cx.arc(x, y, 19, 0, 6.29); cx.stroke(); } }
+  // 5. voice bars (fine, gradient)
+  for (let i = 0; i < 180; i++) { const ang = i / 180 * 6.2832 - Math.PI / 2, nn = Math.sin(t / 180 + i * .5) * .5 + Math.sin(t / 95 + i * 1.3) * .5, bi = i % BARS;
+    const v = mode === "speaking" ? .4 + .6 * Math.abs(nn) * (.6 + level) : mode === "listening" ? .12 + micLevel * 1.5 * Math.abs(nn) + .08 * Math.abs(Math.sin(t / 400 + i)) : mode === "thinking" ? .2 + .5 * Math.max(0, Math.sin(t / 220 - i * .22)) : .05 + .05 * Math.abs(nn);
+    bars[bi] += (v - bars[bi]) * .25; const r0 = 300, r1 = r0 + 4 + bars[bi] * 56; cx.strokeStyle = `rgba(${c},${.3 + bars[bi] * .65})`; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(C + Math.cos(ang) * r0, C + Math.sin(ang) * r0); cx.lineTo(C + Math.cos(ang) * r1, C + Math.sin(ang) * r1); cx.stroke(); }
+  // 6a. energy flow around the outer segment ring
+  cx.setLineDash([60, 200]); cx.lineDashOffset = -t / 6; ARCRING(cx, 282, 0, 6.29, 3, `rgba(220,250,255,${.55 + level * .4})`); cx.setLineDash([]); ARCRING(cx, 282, 0, 6.29, 1, `rgba(${c},.5)`);
+  // 6b. OUTER SEGMENTS (12, bevelled panels with bolts)
+  const N = 12, gap = .05, r1 = 262, r2 = 180;
+  for (let k = 0; k < N; k++) { const a0 = k * 6.2832 / N + rotW + gap, a1 = (k + 1) * 6.2832 / N + rotW - gap, br = .5 + .5 * Math.sin(t / 500 - k * .6 + level * 4), am = (a0 + a1) / 2;
+    wedge(cx, r1, r2, a0, a1); const gg = cx.createRadialGradient(C, C, r2, C, C, r1); gg.addColorStop(0, `rgba(210,248,255,${.6 + br * .3})`); gg.addColorStop(.5, `rgba(${c},${.38 + br * .35 + level * .2})`); gg.addColorStop(1, `rgba(${c},.16)`); cx.fillStyle = gg; cx.fill();
+    cx.strokeStyle = `rgba(180,238,255,${.6 + br * .3})`; cx.lineWidth = 2; cx.stroke();
+    wedge(cx, r1 - 12, r2 + 12, a0 + .035, a1 - .035); cx.fillStyle = `rgba(2,16,44,${.45 - br * .1})`; cx.fill(); cx.strokeStyle = `rgba(${c},.55)`; cx.lineWidth = 1; cx.stroke();      // inset panel
+    cx.strokeStyle = `rgba(230,250,255,${.25 + br * .35})`; cx.lineWidth = 1.5; cx.beginPath(); cx.moveTo(C + Math.cos(am) * (r2 + 20), C + Math.sin(am) * (r2 + 20)); cx.lineTo(C + Math.cos(am) * (r1 - 20), C + Math.sin(am) * (r1 - 20)); cx.stroke(); // centre rib
+    for (const d of [r1 - 6, r2 + 6]) { cx.fillStyle = "rgba(235,252,255,.9)"; cx.beginPath(); cx.arc(C + Math.cos(am) * d, C + Math.sin(am) * d, 2.2, 0, 6.29); cx.fill(); } }
+  // 6c. notched ring between the two segment layers
+  ARCRING(cx, 172, 0, 6.29, 6, `rgba(${c},.5)`); cx.save(); cx.translate(C, C); cx.rotate(-rotW * 2.5); cx.strokeStyle = "rgba(220,250,255,.85)"; cx.lineWidth = 2; for (let i = 0; i < 36; i++) { cx.rotate(6.2832 / 36); cx.beginPath(); cx.moveTo(0, -167); cx.lineTo(0, -177); cx.stroke(); } cx.restore();
+  // 6d. INNER SEGMENTS (8, counter-rotating, hotter)
+  const M = 8, ri1 = 160, ri2 = 118;
+  for (let k = 0; k < M; k++) { const a0 = k * 6.2832 / M - rotW * 1.8 + .06, a1 = (k + 1) * 6.2832 / M - rotW * 1.8 - .06, br = .5 + .5 * Math.sin(t / 380 + k * .9 + level * 5);
+    wedge(cx, ri1, ri2, a0, a1); const gi = cx.createRadialGradient(C, C, ri2, C, C, ri1); gi.addColorStop(0, `rgba(255,255,255,${.5 + br * .4})`); gi.addColorStop(1, `rgba(${c},${.45 + br * .3})`); cx.fillStyle = gi; cx.fill(); cx.strokeStyle = "rgba(220,250,255,.9)"; cx.lineWidth = 2; cx.stroke(); }
+  // 7. iris: hexagon outlines + rays + core
+  cx.save(); cx.translate(C, C);
+  for (let h = 0; h < 2; h++) { cx.rotate(h ? -t / 1500 : t / 1100); cx.strokeStyle = `rgba(${h ? "255,255,255" : "190,240,255"},${.55 + level * .3})`; cx.lineWidth = h ? 2 : 3; cx.beginPath(); for (let k = 0; k <= 6; k++) { const a = k * Math.PI / 3, rr = h ? 78 : 100; k ? cx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : cx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); } cx.stroke(); }
+  cx.rotate(t / 3000); for (let k = 0; k < 24; k++) { cx.rotate(6.2832 / 24); cx.strokeStyle = `rgba(255,255,255,${.12 + .2 * Math.abs(Math.sin(t / 400 + k)) + level * .2})`; cx.lineWidth = 1.5; cx.beginPath(); cx.moveTo(0, -40); cx.lineTo(0, -(95 + level * 25)); cx.stroke(); } cx.restore();
+  const R = 52 + level * 16 + Math.sin(t / 260) * 3, cg = cx.createRadialGradient(C, C, 0, C, C, R * 1.9); cg.addColorStop(0, "rgba(255,255,255,1)"); cg.addColorStop(.28, "rgba(215,250,255,.98)"); cg.addColorStop(.6, `rgba(${c},.65)`); cg.addColorStop(1, `rgba(${c},0)`); cx.fillStyle = cg; cx.beginPath(); cx.arc(C, C, R * 1.9, 0, 6.29); cx.fill();
+  ARCRING(cx, 66, 0, 6.29, 2, "rgba(255,255,255,.8)");
+  // radar sweep over the whole reactor
+  sweep += .02 + level * .03; for (let k = 0; k < 24; k++) { cx.strokeStyle = `rgba(255,255,255,${.1 * (1 - k / 24)})`; cx.lineWidth = 9; cx.beginPath(); cx.arc(C, C, 215, sweep - k * .03 - .03, sweep - k * .03); cx.stroke(); }
+  // 8. glass highlight
+  const gl = cx.createLinearGradient(C - 260, C - 260, C + 60, C + 60); gl.addColorStop(0, "rgba(255,255,255,.12)"); gl.addColorStop(.5, "rgba(255,255,255,0)"); cx.fillStyle = gl; cx.beginPath(); cx.arc(C, C, 262, 0, 6.29); cx.fill();
+  // 9. satellites with real status
+  cx.globalCompositeOperation = "source-over"; const sats = [["EARS", recOn ? "LIVE" : "OFF", recOn], ["NET", "OK", true], ["MODE", "PAPER", true]];
+  sats.forEach((s, i) => { const a = t / 3500 * (i % 2 ? -1 : 1) + i * 2.1 + .5, r = 345, x = C + Math.cos(a) * r, y = C + Math.sin(a) * r; cx.fillStyle = s[2] ? "#3ddc97" : "#6f90bb"; cx.beginPath(); cx.arc(x, y, 5, 0, 6.29); cx.fill(); cx.fillStyle = "rgba(214,236,255,.92)"; cx.font = "600 13px Rajdhani, monospace"; cx.textAlign = "left"; cx.fillText(s[0] + " " + s[1], x + 10, y + 4); });
+}
+/* ===== VFX layer: shockwaves, sparks, lightning, lens flare, intro spin ===== */
+let introStart = null; const introK = t => introStart == null ? 0 : Math.min(1, (performance.now() - introStart) / 2400);
+const waves = [], sparks = [];
+const fx = {
+  wave(sp = 1) { waves.push({ t0: performance.now(), sp }); }, flash() { const f = $("flash"); f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); },
+  shake() { const a = $("app"); a.classList.remove("shake"); void a.offsetWidth; a.classList.add("shake"); },
+  glitchApp() { const a = $("app"); a.classList.add("gl"); setTimeout(() => a.classList.remove("gl"), 140); },
+  modeChange(a, b) { document.body.classList.toggle("listening", b === "listening"); clearInterval(fx.thinkT);
+    if (b === "listening") { sfx.wake(); fx.wave(1.2); } if (b === "speaking") { sfx.swell(); fx.wave(.9); } if (b === "thinking") { fx.wave(1.4); fx.thinkT = setInterval(() => sfx.think(), 420); } }
+};
+setInterval(() => { if (Math.random() < .5) { fx.glitchApp(); sfx.glitch(); } }, 17000);
+function drawVfx(t) {
+  const C = 500, c = rgb(); cx.globalCompositeOperation = "lighter";
+  for (let i = waves.length - 1; i >= 0; i--) { const w = waves[i], k = (performance.now() - w.t0) / (1300 / w.sp); if (k > 1) { waves.splice(i, 1); continue; } cx.strokeStyle = `rgba(170,240,255,${.7 * (1 - k)})`; cx.lineWidth = 6 * (1 - k) + 1; cx.beginPath(); cx.arc(C, C, 110 + k * 380, 0, 6.29); cx.stroke(); }
+  if (level > .3 && Math.random() < level * .6) for (let n = 0; n < 2; n++) sparks.push({ a: Math.random() * 6.29, r: 262, v: 1.5 + Math.random() * 3.5, life: 1, w: Math.random() < .2 });
+  for (let i = sparks.length - 1; i >= 0; i--) { const p = sparks[i]; p.r += p.v; p.life -= .018; if (p.life <= 0) { sparks.splice(i, 1); continue; } const x = C + Math.cos(p.a) * p.r, y = C + Math.sin(p.a) * p.r; cx.strokeStyle = `rgba(${p.w ? "255,255,255" : "150,230,255"},${p.life})`; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(x, y); cx.lineTo(x - Math.cos(p.a) * p.v * 5, y - Math.sin(p.a) * p.v * 5); cx.stroke(); }
+  if ((mode === "speaking" || mode === "thinking") && Math.random() < (mode === "speaking" ? .22 : .12)) { // lightning between the core and the segmented ring
+    const a = Math.random() * 6.29; let x = C + Math.cos(a) * 120, y = C + Math.sin(a) * 120; cx.strokeStyle = "rgba(220,250,255,.95)"; cx.lineWidth = 2; cx.shadowColor = `rgb(${c})`; cx.shadowBlur = 16; cx.beginPath(); cx.moveTo(x, y);
+    for (let s = 1; s <= 7; s++) { const r = 120 + s * 19, aa = a + (Math.random() - .5) * .22; x = C + Math.cos(aa) * r; y = C + Math.sin(aa) * r; cx.lineTo(x, y); } cx.stroke(); cx.shadowBlur = 0; }
+  const fl = 120 + level * 200 + Math.sin(t / 300) * 20; const gh = cx.createLinearGradient(C - fl, 0, C + fl, 0); gh.addColorStop(0, "rgba(160,230,255,0)"); gh.addColorStop(.5, `rgba(220,250,255,${.35 + level * .3})`); gh.addColorStop(1, "rgba(160,230,255,0)"); cx.fillStyle = gh; cx.fillRect(C - fl, C - 1.5, fl * 2, 3);
+  cx.globalCompositeOperation = "source-over"; }
+const blm = $("bloom").getContext("2d");
+function drawOrb(t) { const k = introK(t), e = 1 - Math.pow(1 - k, 3), S = cv.width / 1000; cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, cv.width, cv.width); if (k === 0) return;
+  cx.setTransform(S, 0, 0, S, 0, 0); cx.save(); cx.translate(500, 500); cx.scale(.5 + .5 * e, .5 + .5 * e); cx.rotate((1 - e) * 2.6); cx.translate(-500, -500); cx.globalAlpha = Math.min(1, k * 2.2); drawOrbCore(t); drawVfx(t); cx.restore();
+  blm.clearRect(0, 0, 360, 360); blm.drawImage(cv, 0, 0, 360, 360); $("orbwrap").style.transform = `translate(${mx * -14}px,${my * -10}px)`; }
+/* ===== sound design ===== */
+const A = () => { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); return ac; };
+let noiseBuf = null, droneNodes = null, lastHover = 0;
+function noise() { const a = A(); if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; } const s = a.createBufferSource(); s.buffer = noiseBuf; return s; }
+function whoosh(dur = .6, f1 = 300, f2 = 3000, v = .07) { if (!sfxOn) return; try { const a = A(), n = noise(), f = a.createBiquadFilter(), g = a.createGain(); f.type = "bandpass"; f.Q.value = 1.2; f.frequency.setValueAtTime(f1, a.currentTime); f.frequency.exponentialRampToValueAtTime(f2, a.currentTime + dur); g.gain.setValueAtTime(.0001, a.currentTime); g.gain.exponentialRampToValueAtTime(v, a.currentTime + dur * .4); g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + dur); n.connect(f).connect(g).connect(a.destination); n.start(); n.stop(a.currentTime + dur); } catch (e) {} }
+Object.assign(sfx, {
+  powerUp() { if (!sfxOn) return; try { const a = A(), o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain(); o.type = "sawtooth"; f.type = "lowpass"; o.frequency.setValueAtTime(50, a.currentTime); o.frequency.exponentialRampToValueAtTime(420, a.currentTime + 1.8); f.frequency.setValueAtTime(100, a.currentTime); f.frequency.exponentialRampToValueAtTime(3500, a.currentTime + 1.8);
+      g.gain.setValueAtTime(.0001, a.currentTime); g.gain.exponentialRampToValueAtTime(.09, a.currentTime + 1.6); g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + 2.3); o.connect(f).connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + 2.4); } catch (e) {}
+    whoosh(1.5, 200, 5000, .08); setTimeout(() => beep(60, .7, "sine", .22, 30), 1500); [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, .35, "triangle", .05), 1450 + i * 110)); },
+  whoosh, tick() { beep(2600 + Math.random() * 600, .012, "square", .008); }, hover() { const n = performance.now(); if (n - lastHover < 90) return; lastHover = n; beep(1900, .03, "sine", .018, 2400); },
+  click() { beep(900, .05, "square", .02, 400); }, wake() { beep(520, .09, "triangle", .06, 780); setTimeout(() => beep(1040, .12, "triangle", .05, 1560), 80); }, swell() { whoosh(.5, 400, 1800, .05); beep(140, .35, "sine", .06, 220); },
+  think() { beep(1400 + Math.random() * 900, .04, "sine", .02); }, glitch() { whoosh(.18, 2500, 6000, .05); beep(180, .1, "sawtooth", .03, 60); },
+  drone(on) { try { if (on && sfxOn) { if (droneNodes) return; const a = A(), g = a.createGain(); g.gain.value = .0001; g.gain.exponentialRampToValueAtTime(.014, a.currentTime + 3); const o1 = a.createOscillator(), o2 = a.createOscillator(), l = a.createOscillator(), lg = a.createGain(); o1.frequency.value = 55; o2.frequency.value = 82.5; o2.type = "triangle"; l.frequency.value = .15; lg.gain.value = .006; l.connect(lg).connect(g.gain); [o1, o2].forEach(o => { o.connect(g); o.start(); }); l.start(); g.connect(a.destination); droneNodes = { g, o: [o1, o2, l] }; }
+      else if (droneNodes) { const d = droneNodes; droneNodes = null; d.g.gain.exponentialRampToValueAtTime(.0001, A().currentTime + .6); setTimeout(() => d.o.forEach(o => { try { o.stop(); } catch (e) {} }), 700); } } catch (e) {} }
+});
+function scramble(el, final) { const ch = "▌▍░▒#%&01ABCDEFXYZ"; let n = 0; const iv = setInterval(() => { n++; el.textContent = final.split("").map((c, i) => i < n / 2 ? c : ch[Math.random() * ch.length | 0]).join(""); if (n > final.length * 2) { clearInterval(iv); el.textContent = final; } }, 45); }
+addEventListener("pointerdown", e => { const r = document.createElement("div"); r.className = "rip"; r.style.left = e.clientX + "px"; r.style.top = e.clientY + "px"; document.body.appendChild(r); setTimeout(() => r.remove(), 750); if (activated) sfx.click(); });
+document.addEventListener("pointerover", e => { if (activated && e.target.closest && e.target.closest(".ib,.panel,.mini")) sfx.hover(); });
+/* globe */
+const gb = $("globe"), gx = gb.getContext("2d");
+function drawGlobe(t) { const W = gb.width, C = W / 2, R = 42, c = rgb(); gx.clearRect(0, 0, W, W); gx.globalCompositeOperation = "lighter"; const g = gx.createRadialGradient(C - 10, C - 10, 4, C, C, R); g.addColorStop(0, "rgba(120,200,255,.55)"); g.addColorStop(1, `rgba(${c},.1)`); gx.fillStyle = g; gx.beginPath(); gx.arc(C, C, R, 0, 6.29); gx.fill();
+  gx.strokeStyle = `rgba(150,225,255,.7)`; gx.lineWidth = 1; gx.beginPath(); gx.arc(C, C, R, 0, 6.29); gx.stroke(); for (let k = -2; k <= 2; k++) { const y = C + k * R / 3, w = Math.sqrt(R * R - (k * R / 3) ** 2); gx.beginPath(); gx.ellipse(C, y, w, w * .18, 0, 0, 6.29); gx.stroke(); }
+  for (let k = 0; k < 4; k++) { const a = t / 2500 + k * Math.PI / 4; gx.beginPath(); gx.ellipse(C, C, Math.abs(Math.cos(a)) * R, R, 0, 0, 6.29); gx.stroke(); } }
+/* network nodes */
+const nt = $("net"), nx2 = nt.getContext("2d"), NODES = Array.from({ length: 11 }, () => ({ x: Math.random() * 200, y: Math.random() * 200, p: Math.random() * 6.3, s: .3 + Math.random() * .6 }));
+function drawNet(t) { const c = rgb(); nx2.clearRect(0, 0, 200, 200); const P = NODES.map(n => [n.x + Math.sin(t / 1500 * n.s + n.p) * 8, n.y + Math.cos(t / 1700 * n.s + n.p) * 8]);
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { const d = Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]); if (d < 80) { nx2.strokeStyle = `rgba(${c},${.5 * (1 - d / 80)})`; nx2.beginPath(); nx2.moveTo(...P[i]); nx2.lineTo(...P[j]); nx2.stroke(); } }
+  P.forEach((p, i) => { nx2.fillStyle = i % 4 ? `rgba(${c},.9)` : "rgba(200,245,255,1)"; nx2.beginPath(); nx2.arc(p[0], p[1], i % 4 ? 3 : 5, 0, 6.29); nx2.fill(); }); }
+/* small diagnostics art: pulse line, health ring, risk radar */
+let healthPct = 100, riskFrac = 0;
+const pl = $("pulse"), plx = pl.getContext("2d"), hr = $("hring"), hrx = hr.getContext("2d"), rd = $("radar"), rdx = rd.getContext("2d");
+function drawSmall(t) { const c = rgb(); plx.clearRect(0, 0, 120, 80); plx.strokeStyle = `rgb(${c})`; plx.lineWidth = 2; plx.shadowColor = `rgb(${c})`; plx.shadowBlur = 8; plx.beginPath(); plx.arc(40, 40, 30, 0, 6.29); plx.stroke(); plx.beginPath();
+  for (let x = 12; x <= 68; x += 2) { const p = ((x + t / 40) % 56) / 56, y = 40 - (p > .42 && p < .5 ? 22 * Math.sin((p - .42) / .08 * Math.PI) : 0) + (p > .5 && p < .56 ? 9 : 0); x === 12 ? plx.moveTo(x, y) : plx.lineTo(x, y); } plx.stroke(); plx.shadowBlur = 0;
+  hrx.clearRect(0, 0, 140, 140); for (let k = 0; k < 3; k++) { hrx.strokeStyle = `rgba(${c},${.9 - k * .25})`; hrx.lineWidth = 5 - k; hrx.beginPath(); hrx.arc(70, 70, 60 - k * 14, t / 900 * (k % 2 ? -1 : 1) + k, t / 900 * (k % 2 ? -1 : 1) + k + 3.6 - k * .6); hrx.stroke(); } hrx.strokeStyle = "rgba(170,240,255,.9)"; hrx.lineWidth = 6; hrx.beginPath(); hrx.arc(70, 70, 24, -1.57, -1.57 + 6.283 * healthPct / 100); hrx.stroke();
+  rdx.clearRect(0, 0, 160, 160); const col = riskFrac > .66 ? "255,179,71" : c; for (let k = 1; k <= 4; k++) { rdx.strokeStyle = `rgba(${col},${.25 + k * .08})`; rdx.lineWidth = k === 4 ? 4 : 1.5; rdx.beginPath(); rdx.arc(80, 80, k * 18, 0, 6.29); rdx.stroke(); }
+  rdx.strokeStyle = `rgba(${col},.4)`; rdx.lineWidth = 1; rdx.beginPath(); rdx.moveTo(8, 80); rdx.lineTo(152, 80); rdx.moveTo(80, 8); rdx.lineTo(80, 152); rdx.stroke(); const a = t / 700; for (let k = 0; k < 18; k++) { rdx.strokeStyle = `rgba(${col},${.5 * (1 - k / 18)})`; rdx.lineWidth = 6; rdx.beginPath(); rdx.arc(80, 80, 36, a - k * .06 - .06, a - k * .06); rdx.stroke(); }
+  rdx.strokeStyle = `rgba(${col},.95)`; rdx.lineWidth = 5; rdx.beginPath(); rdx.arc(80, 80, 72, -1.57, -1.57 + 6.283 * Math.max(.03, riskFrac)); rdx.stroke(); }
+function frame(t) { frames++; drawBg(t); drawOrb(t); drawGlobe(t); drawNet(t); drawSmall(t); drawScope(t); requestAnimationFrame(frame); } requestAnimationFrame(frame);
+setInterval(() => { fps = frames; frames = 0; $("fps").textContent = fps; }, 1000);
+function setMode(m, label) { if (m !== mode) fx.modeChange(mode, m); mode = m; $("state").textContent = label || { idle: wakeOn ? "SAY “JARVUS …”" : "STANDING BY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" }[m]; }
+const sc = $("scope"), sx = sc.getContext("2d");
+function drawScope(t) { const c = rgb(); sx.clearRect(0, 0, sc.width, sc.height); sx.strokeStyle = `rgb(${c})`; sx.lineWidth = 2; sx.shadowColor = `rgb(${c})`; sx.shadowBlur = 8; sx.beginPath();
+  const useMic = analyser && micStream; if (useMic) analyser.getByteTimeDomainData(micBuf);
+  for (let i = 0; i < sc.width; i += 4) { let v; if (useMic) v = (micBuf[Math.floor(i / sc.width * micBuf.length)] - 128) / 128; else v = (mode === "speaking" ? .6 : .05) * Math.sin(i / 12 + t / 110) * Math.sin(i / 47 - t / 260) * Math.sin(i / sc.width * 3.14); const y = sc.height / 2 + v * sc.height * .46; i ? sx.lineTo(i, y) : sx.moveTo(i, y); } sx.stroke(); sx.shadowBlur = 0; }
+/* ---------- subtitle typewriter ---------- */
+let typer; function typeOut(text) { clearInterval(typer); const el = $("sub"); el.className = ""; let i = 0; const sp = Math.max(12, Math.min(36, 2600 / text.length));
+  typer = setInterval(() => { i++; if (i % 3 === 0) sfx.tick(); el.innerHTML = esc(text.slice(0, i)) + '<span class="cur"></span>'; if (i >= text.length) { clearInterval(typer); el.innerHTML = esc(text); } }, sp); }
+
+/* ---------- mic meter ---------- */
+let analyser, micBuf, micStream;
+async function micMeter(on) { if (!on) { micLevel = 0; $("micbar").style.width = "0%"; if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; } return; } if (micStream) return;
+  try { micStream = await navigator.mediaDevices.getUserMedia({ audio: true }); ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const src = ac.createMediaStreamSource(micStream); analyser = ac.createAnalyser(); analyser.fftSize = 512; src.connect(analyser); micBuf = new Uint8Array(analyser.fftSize);
+    (function tick() { if (!micStream) return; analyser.getByteFrequencyData(micBuf); let s = 0; for (let i = 0; i < 128; i++) s += micBuf[i]; micLevel = s / 128 / 90; $("micbar").style.width = Math.min(100, micLevel * 100) + "%"; requestAnimationFrame(tick); })(); } catch (e) {} }
+
+/* ---------- talking to the server ---------- */
+async function ask(text) {
+  if (!text.trim()) return; asked++; $("asked").textContent = asked; setMode("thinking"); $("q").value = ""; sfx.heard();
+  try { const r = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }), d = await r.json();
+    if (d.open_url) { window.open(d.open_url, "_blank"); sfx.on(); } if (d.command === "HALT") sfx.alarm(); say(d.reply || "No reply.");
+  } catch (e) { say("I cannot reach the server."); } refresh();
+}
+function say(text) {
+  typeOut(text); const clean = text.replace(/[-*#`]/g, " ").replace(/\$/g, " dollars "); if (rec && recOn) rec.abort();
+  const after = () => { setMode("idle"); convUntil = Date.now() + 10000; if (wakeOn && activated) setTimeout(startRec, 250); };
+  if (!speakOn || !("speechSynthesis" in window)) { setMode("speaking"); setTimeout(after, Math.min(6000, text.length * 40)); return; }
+  setMode("speaking"); const fb = setTimeout(after, Math.max(3000, text.length * 85)); const vs = speechSynthesis.getVoices(), u = new SpeechSynthesisUtterance(clean);
+  u.voice = vs.find(v => /en-GB/i.test(v.lang) && /male|daniel|george|arthur/i.test(v.name)) || vs.find(v => /en-GB/i.test(v.lang)) || null; voiceName = u.voice ? u.voice.name.slice(0, 22) : "default"; $("vname").textContent = voiceName; u.rate = 1.03; u.pitch = .9;
+  u.onend = () => { clearTimeout(fb); after(); }; speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+/* ---------- ears: always listening, wake word, 10-second follow-up window ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec = null, recOn = false;
+$("ears").textContent = SR ? "READY" : "USE CHROME/EDGE";
+function startRec() {
+  if (!SR) { setMode("idle", "VOICE NEEDS CHROME OR EDGE"); return; } if (recOn || mode === "speaking" || mode === "thinking") return;
+  rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
+  rec.onstart = () => { recOn = true; $("mic").classList.add("live"); $("ears").textContent = "LISTENING"; micMeter(true); setMode(wakeOn ? "idle" : "listening"); if (Date.now() < convUntil) $("state").textContent = "FOLLOW-UP · JUST TALK"; };
+  rec.onend = () => { recOn = false; $("mic").classList.remove("live"); $("ears").textContent = "READY"; if (!wakeOn) micMeter(false); if (wakeOn && activated && mode === "idle") setTimeout(startRec, 300); };
+  rec.onerror = e => { if (e.error === "not-allowed" || e.error === "service-not-allowed") { $("ears").textContent = "MIC BLOCKED"; wakeOn = false; } };
+  rec.onresult = e => { const res = e.results[e.results.length - 1], said = res[0].transcript.trim(); const el = $("sub"); el.className = "heard"; el.textContent = "“" + said + "”"; if (!res.isFinal) return;
+    const inConv = Date.now() < convUntil, m = said.match(/\b(?:jar(?:v|b)[iu]s|travis|service)\b[,.!]?\s*(.*)/i);
+    if (wakeOn && !inConv) { if (!m) return; rec.abort(); m[1] ? ask(m[1]) : (convUntil = Date.now() + 10000, say("Yes?")); } else { rec.abort(); ask(m && m[1] ? m[1] : said); } };
+  try { rec.start(); } catch (e) {}
+}
+function activate() { if (activated) return; activated = true; $("act").style.opacity = 0; setTimeout(() => $("act").remove(), 500); sfx.powerUp(); sfx.drone(true); fx.flash(); fx.wave(1.6); if (wakeOn) startRec(); }
+$("act").onclick = activate; addEventListener("keydown", e => { if (!activated && $("boot") == null) activate(); }, { once: false });
+$("mic").onclick = () => { activate(); if (recOn) { rec.abort(); } else { convUntil = Date.now() + 10000; startRec(); } };
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") { activate(); ask($("q").value); } });
+document.addEventListener("keydown", e => { if (document.activeElement === $("q")) return; if (e.code === "Space") { e.preventDefault(); $("mic").click(); } else if (e.key === "w") $("wake").click(); else if (e.key === "m") $("voice").click(); else if (e.key === "h") $("halt").click(); else if (e.key === "?") $("help").classList.toggle("show"); });
+const toggle = (id, label, get, set) => { $(id).onclick = () => { set(!get()); $(id).querySelector("span").textContent = label + " " + (get() ? "ON" : "OFF"); $(id).classList.toggle("on", get()); }; };
+toggle("wake", "WAKE", () => wakeOn, v => { wakeOn = v; if (rec && recOn) rec.abort(); if (v && activated) setTimeout(startRec, 200); setMode("idle"); });
+toggle("voice", "VOICE", () => speakOn, v => { speakOn = v; speechSynthesis.cancel(); }); toggle("sfx", "SFX", () => sfxOn, v => { sfxOn = v; sfx.drone(v); });
+$("halt").onclick = () => ask("halt everything"); $("helpb").onclick = () => $("help").classList.toggle("show");
+
+/* ---------- live data ---------- */
+const shown = {}; function countTo(id, val, fmt) { const el = $(id), from = shown[id] ?? 0; shown[id] = val; const t0 = performance.now(); (function s(t) { const k = Math.min(1, (t - t0) / 700), v = from + (val - from) * (1 - Math.pow(1 - k, 3)); el.textContent = fmt(v); if (k < 1) requestAnimationFrame(s); })(t0); }
+const money = v => (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2), setBar = (id, p) => { $(id).style.width = Math.max(0, Math.min(100, p)) + "%"; };
+let lastHalt = false, lastLogKey = "", gateTxt = "GATE 0/99", fleetOk = false, histAll = null;
+function paintCpu(cpu) { if (!cpu) { $("cpu").innerHTML = '<div class="none">n/a — run: pip install psutil</div>'; $("cpunote").textContent = ""; return; } const list = cpu.slice(0, 6);
+  $("cpu").innerHTML = list.map((v, i) => `<div class="row"><span class="n">CORE ${i + 1}</span><div class="bar"><div style="width:${v}%"></div></div><span class="v">${Math.round(v)}%</span></div>`).join(""); $("cpunote").textContent = cpu.length > 6 ? `+${cpu.length - 6} MORE` : ""; }
+async function refresh() {
+  try { const t0 = performance.now(), s = await (await fetch("/api/stats")).json(); $("ping").textContent = Math.round(performance.now() - t0) + " ms"; const p = s.pnl_today;
+    if (p == null) { $("pnl").textContent = "--"; $("pnl").className = "v"; } else { countTo("pnl", p, money); $("pnl").className = "v " + (p < 0 ? "bad" : "good"); }
+    $("trades").textContent = s.trades_today == null ? "--" : `${s.trades_today} · ${s.wins}/${s.losses}`;
+    const age = s.report_age_minutes; $("rep").textContent = age == null ? "NO REPORT" : (age > 30 ? "STALE " + Math.round(age) + "m" : "FRESH"); $("rep").className = age == null || age > 30 ? "warn" : "good";
+    $("sites").textContent = s.sites; $("sitelist").innerHTML = s.site_list.length ? s.site_list.map(x => `<a href="${esc(x.url)}" target="_blank">▸ ${esc(x.name)}</a>`).join("") : '<div class="none">Say "build a website for…"</div>';
+    $("chat").textContent = "CHAT " + (s.chat_on ? "ON" : "OFF"); $("chat").className = s.chat_on ? "good" : "warn"; $("model").textContent = s.model; const u = s.uptime_s, hh = String(Math.floor(u / 3600)).padStart(2, "0"), mm = String(Math.floor(u % 3600 / 60)).padStart(2, "0"), ss = String(u % 60).padStart(2, "0"); $("up").textContent = `${hh}:${mm}:${ss}`; $("upBig").textContent = `${hh}:${mm}:${ss}`;
+    document.body.classList.toggle("alert", s.halt); if (s.halt && !lastHalt) { sfx.alarm(); fx.shake(); fx.flash(); fx.wave(2); } lastHalt = s.halt; $("stat").textContent = s.halt ? "HALTED" : "ONLINE"; $("stat").className = s.halt ? "warn" : "good";
+    paintCpu(s.sys.cpu); if (s.sys.ram != null) { setBar("ramb", s.sys.ram); $("ramv").textContent = Math.round(s.sys.ram) + "%"; setBar("swapb", s.sys.swap); $("swapv").textContent = Math.round(s.sys.swap) + "%"; } else { $("ramv").textContent = $("swapv").textContent = "n/a"; }
+    // agents
+    $("a1").textContent = s.chat_on ? "ONLINE" : "CHAT OFF"; $("a1").className = "s " + (s.chat_on ? "good" : "warn"); setBar("a1b", s.chat_on ? 100 : 15); $("a2").textContent = "ONLINE"; $("a2").className = "s good"; setBar("a2b", 100);
+    // health = share of checks that pass
+    const checks = [true, age != null && age <= 30, !s.halt, fleetOk, true]; healthPct = Math.round(100 * checks.filter(Boolean).length / checks.length); $("health").textContent = healthPct + "%"; $("sysok").textContent = s.halt ? "HALTED" : (healthPct === 100 ? "NOMINAL" : "CHECK"); $("sysok").className = healthPct === 100 && !s.halt ? "good" : "warn";
+    // risk monitor (real numbers from the report and the code limits)
+    const L = s.limits, pct = s.pnl_today_pct; riskFrac = pct != null && pct < 0 ? Math.min(1, pct / L.day_loss_pct) : 0;
+    $("rk1").textContent = (pct == null ? "--" : pct.toFixed(2) + "%") + " / " + L.day_loss_pct + "%"; $("rk2").textContent = (s.trades_today ?? "--") + " / " + L.max_trades_day; $("rk3").textContent = s.paused.length; $("rk4").textContent = s.halt ? "HALTED" : "ARMED"; $("rk4").className = "v " + (s.halt ? "warn" : "good");
+    $("riskst").textContent = s.halt ? "HALTED" : riskFrac > .66 ? "HIGH" : riskFrac > .33 ? "WATCH" : "LOW"; $("riskst").className = riskFrac > .66 || s.halt ? "warn" : "good";
+    $("fleetBig").className = "big"; const key = JSON.stringify(s.log); if (key !== lastLogKey) { lastLogKey = key; $("log").innerHTML = s.log.map(l => `<li class="${esc(l.kind)}"><time>${esc(new Date(l.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</time>${esc(l.text)}</li>`).join(""); }
+    $("tick").textContent = `PAPER ONLY  ///  ${gateTxt}  ///  ${s.halt ? "HALT ENGAGED" : "KILL SWITCH ARMED"}  ///  PAPER P&L TODAY ${p == null ? "--" : money(p)}  ///  BOTS PAUSED ${s.paused.length}  ///  NO TRADING TOOLS ATTACHED  ///  SAY “JARVUS …”  ///  `.repeat(2);
+  } catch (e) { $("stat").textContent = "OFFLINE"; $("stat").className = "warn"; $("sysok").textContent = "SERVER OFFLINE"; healthPct = 0; }
+}
+const COL = { WATCH: "#ffc857", RETRAIN: "#2f7fe0", "NEEDS DATA": "#4a5f8a", "MEME SHADOW": "#b57bff", PARKED: "#16233f", ACTIVE: "#3ddc97" };
+async function loadFleet() { try { const f = await (await fetch("/api/fleet")).json(), m = $("matrix"); m.innerHTML = ""; fleetOk = f.total > 0;
+  f.bots.forEach(b => { const e = document.createElement("i"); e.className = b.status.split(" ")[0] + (b.paused ? " paused" : ""); e.title = `${b.id} · ${b.symbol} · ${b.status}${b.paused ? " · PAUSED" : ""}`; m.appendChild(e); });
+  const watch = f.counts["WATCH"] || 0; $("mcount").textContent = f.total + " BOTS"; gateTxt = `GATE ${f.allowed}/${f.total || 99}`; $("gate").textContent = f.allowed + " / " + (f.total || 99); $("gateBig").textContent = f.allowed; $("watchBig").textContent = watch; $("fleetBig").textContent = f.total;
+  $("a3").textContent = f.total ? watch + " WATCH" : "NO DATA"; $("a3").className = "s " + (f.total ? "good" : "warn"); setBar("a3b", f.total ? 100 : 10); } catch (e) { fleetOk = false; } }
+async function loadSpark() { const c = $("spark"), x = c.getContext("2d"), col = rgb(); x.clearRect(0, 0, c.width, c.height);
+  try { const pts = (await (await fetch("/api/history")).json()).points; if (pts.length < 2) { x.fillStyle = "#6f95c4"; x.font = "16px Rajdhani"; x.fillText("no paper log yet", 10, 60); return; }
+    const v = pts.map(p => p.cum); $("pnlall").textContent = money(v[v.length - 1]); $("pnlall").className = "v " + (v[v.length - 1] < 0 ? "bad" : "good");
+    const lo = Math.min(0, ...v), hi = Math.max(0, ...v), rg = (hi - lo) || 1, X = i => 8 + i * (c.width - 16) / (pts.length - 1), Y = a => c.height - 12 - (a - lo) / rg * (c.height - 24);
+    x.strokeStyle = "rgba(255,255,255,.2)"; x.setLineDash([4, 4]); x.beginPath(); x.moveTo(0, Y(0)); x.lineTo(c.width, Y(0)); x.stroke(); x.setLineDash([]); const g = x.createLinearGradient(0, 0, 0, c.height); g.addColorStop(0, `rgba(${col},.4)`); g.addColorStop(1, `rgba(${col},0)`);
+    x.beginPath(); v.forEach((a, i) => i ? x.lineTo(X(i), Y(a)) : x.moveTo(X(i), Y(a))); x.strokeStyle = `rgb(${col})`; x.lineWidth = 2.5; x.shadowColor = `rgb(${col})`; x.shadowBlur = 10; x.stroke(); x.shadowBlur = 0; x.lineTo(X(v.length - 1), c.height); x.lineTo(X(0), c.height); x.fillStyle = g; x.fill(); } catch (e) {} }
+/* ---------- live crypto prices (public Coinbase feed, read from your browser; not from the bots) ---------- */
+const COINS = [["BTC-USD", "BTC/USD"], ["ETH-USD", "ETH/USD"], ["SOL-USD", "SOL/USD"], ["DOGE-USD", "DOGE/USD"]], CB = "https://api.exchange.coinbase.com/products/";
+async function candles(id, gran, n) { const r = await fetch(`${CB}${id}/candles?granularity=${gran}`); if (!r.ok) throw 0; return (await r.json()).slice(0, n).reverse(); } // [time,low,high,open,close,vol]
+function spark(arr, up) { const w = 120, h = 30, lo = Math.min(...arr), hi = Math.max(...arr), rg = hi - lo || 1, pts = arr.map((v, i) => `${(i / (arr.length - 1) * w).toFixed(1)},${(h - 3 - (v - lo) / rg * (h - 6)).toFixed(1)}`).join(" "); return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="26" preserveAspectRatio="none"><polyline fill="none" stroke="${up ? "#7fe0ff" : "#ffb347"}" stroke-width="1.6" points="${pts}"/></svg>`; }
+async function loadMarket() { try { const rows = await Promise.all(COINS.map(async ([id, nm]) => { const c = await candles(id, 3600, 24), cl = c.map(k => k[4]), last = cl[cl.length - 1], chg = (last / c[0][3] - 1) * 100; return { nm, cl, last, chg }; }));
+    $("mw").innerHTML = rows.map(r => `<div class="mrow"><span class="sym">${r.nm}</span>${spark(r.cl, r.chg >= 0)}<span class="px">${r.last >= 100 ? r.last.toLocaleString("en-US", { maximumFractionDigits: 2 }) : r.last.toPrecision(4)}</span><span class="chg ${r.chg >= 0 ? "up" : "dn"}">${r.chg >= 0 ? "+" : ""}${r.chg.toFixed(2)}%</span></div>`).join(""); $("mfeed").textContent = "COINBASE · LIVE"; $("mfeed").className = "good";
+    drawCandles(await candles("BTC-USD", 900, 60)); } catch (e) { $("mfeed").textContent = "NO FEED"; $("mfeed").className = "warn"; if (!$("mw").innerHTML) $("mw").innerHTML = '<div class="none">Price feed not reachable from this browser. Nothing is invented here.</div>'; } }
+function drawCandles(d) { const c = $("candles"), x = c.getContext("2d"), W = c.width, H = c.height, col = rgb(); x.clearRect(0, 0, W, H); const ch = H * .72, hi = Math.max(...d.map(k => k[2])), lo = Math.min(...d.map(k => k[1])), rg = hi - lo || 1, Y = v => 8 + (hi - v) / rg * (ch - 16), bw = (W - 60) / d.length, vm = Math.max(...d.map(k => k[5]));
+  x.font = "600 12px Rajdhani"; x.fillStyle = "#6f95c4"; x.strokeStyle = "rgba(120,180,255,.12)"; for (let k = 0; k < 5; k++) { const v = lo + rg * k / 4, y = Y(v); x.beginPath(); x.moveTo(0, y); x.lineTo(W - 52, y); x.stroke(); x.fillText(Math.round(v).toLocaleString("en-US"), W - 50, y + 4); }
+  d.forEach((k, i) => { const xx = 4 + i * bw + bw / 2, up = k[4] >= k[3], cl = up ? "#59c8ff" : "#ffb347"; x.strokeStyle = cl; x.fillStyle = up ? "rgba(89,200,255,.85)" : "rgba(255,179,71,.85)"; x.lineWidth = 1; x.beginPath(); x.moveTo(xx, Y(k[2])); x.lineTo(xx, Y(k[1])); x.stroke(); const y1 = Y(Math.max(k[3], k[4])), y2 = Y(Math.min(k[3], k[4])); x.fillRect(xx - bw * .35, y1, bw * .7, Math.max(1.5, y2 - y1)); x.globalAlpha = .5; x.fillRect(xx - bw * .35, H - 6 - k[5] / vm * (H * .22), bw * .7, k[5] / vm * (H * .22)); x.globalAlpha = 1; }); }
+function clocks() { const now = new Date(); $("clock").textContent = now.toLocaleTimeString("en-GB", { timeZone: "America/Edmonton" }) + " MT"; $("date").textContent = now.toLocaleDateString("en-GB", { timeZone: "America/Edmonton" });
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })), dow = et.getDay(), mins = et.getHours() * 60 + et.getMinutes(), open = dow > 0 && dow < 6 && mins >= 570 && mins < 960;
+  $("nyse").textContent = "NYSE " + (open ? "OPEN" : "CLOSED"); $("nyse").className = open ? "good" : "warn"; }
+$("logb").onclick = () => $("drawer").classList.toggle("show"); document.addEventListener("keydown", e => { if (document.activeElement !== $("q") && e.key === "l") $("drawer").classList.toggle("show"); });
+setInterval(clocks, 1000); clocks(); setInterval(refresh, 4000); refresh(); loadFleet(); loadSpark(); loadMarket(); setInterval(loadFleet, 20000); setInterval(loadSpark, 30000); setInterval(loadMarket, 60000);
+</script>
+</body>
+</html>

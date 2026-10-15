@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-14",
+  "paper_only": true,
+  "generated_at": "2026-10-15T01:13:23+00:00",
+  "pnl_today": -22.75,
+  "pnl_today_pct": -0.23,
+  "pnl_all": -85.5,
+  "trades_today": 2,
+  "wins": 0,
+  "losses": 2,
+  "best": "A002",
+  "worst": "A087",
+  "avg_r_all": -0.142,
+  "avg_cost_r": 0.12,
+  "halted_bots": [],
+  "halt_flag": false
+}

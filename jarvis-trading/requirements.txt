@@ -1,0 +1,14 @@
+# Jarvis Trading Portal - Python add-ons.  Install with:   python -m pip install -r requirements.txt
+# Everything else the portal uses is built into Python 3.10+.  PAPER TRADING ONLY - none of these talk to a broker.
+
+# Needed on Windows: time zones (Mountain / Eastern time, NYSE hours). Without it Windows cannot start the portal.
+tzdata
+
+# Optional: the AI brain (Claude). Without it, or without ANTHROPIC_API_KEY, Jarvis runs in labelled OFFLINE mode.
+anthropic>=1.0
+
+# Optional: reads the strategy and bot spreadsheets in data/*.xlsx. Without it the saved snapshot data/library.json is used.
+openpyxl
+
+# Optional: CPU/RAM numbers for the old HUD in hud/ only. The new portal does not need it.
+psutil

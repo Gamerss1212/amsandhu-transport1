@@ -1,0 +1,67 @@
+[
+  {
+    "bot_id": "A073",
+    "symbol": "TEST",
+    "status": "RETRAIN",
+    "verdict": "REJECT",
+    "cost_r_avg": 0.12,
+    "slippage_vs_model": 1.1,
+    "max_drawdown_pct": -3.0,
+    "backtest_max_dd_pct": -4.0,
+    "consecutive_losses": 0,
+    "heartbeat_age_s": 30,
+    "data_age_s": 60
+  },
+  {
+    "bot_id": "A081",
+    "symbol": "TEST",
+    "status": "RETRAIN",
+    "verdict": "REJECT",
+    "cost_r_avg": 0.12,
+    "slippage_vs_model": 1.1,
+    "max_drawdown_pct": -3.0,
+    "backtest_max_dd_pct": -4.0,
+    "consecutive_losses": 0,
+    "heartbeat_age_s": 30,
+    "data_age_s": 60
+  },
+  {
+    "bot_id": "A087",
+    "symbol": "TEST",
+    "status": "RETRAIN",
+    "verdict": "REJECT",
+    "cost_r_avg": 0.12,
+    "slippage_vs_model": 1.1,
+    "max_drawdown_pct": -3.0,
+    "backtest_max_dd_pct": -4.0,
+    "consecutive_losses": 0,
+    "heartbeat_age_s": 30,
+    "data_age_s": 60
+  },
+  {
+    "bot_id": "A001",
+    "symbol": "TEST",
+    "status": "RETRAIN",
+    "verdict": "REJECT",
+    "cost_r_avg": 0.12,
+    "slippage_vs_model": 1.1,
+    "max_drawdown_pct": -3.0,
+    "backtest_max_dd_pct": -4.0,
+    "consecutive_losses": 0,
+    "heartbeat_age_s": 30,
+    "data_age_s": 60
+  },
+  {
+    "bot_id": "A002",
+    "symbol": "TEST",
+    "status": "MEME SHADOW",
+    "verdict": "REJECT",
+    "cost_r_avg": 0.12,
+    "slippage_vs_model": 1.1,
+    "max_drawdown_pct": -3.0,
+    "backtest_max_dd_pct": -4.0,
+    "consecutive_losses": 0,
+    "heartbeat_age_s": 30,
+    "data_age_s": 60
+  }
+]

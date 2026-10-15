@@ -1,0 +1,8 @@
+# runtime state (paper books, HALT/pause files, audit log, SQLite memory, cached bars) - never commit
+state/
+hud/state/
+kit/state/
+__pycache__/
+*.pyc
+.pip_installed
+*.tmp
