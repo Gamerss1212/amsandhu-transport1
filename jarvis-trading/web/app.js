@@ -438,7 +438,18 @@ function handleEvents(st) {
   for (const e of st.ui_events || []) { S.uiSince = Math.max(S.uiSince, e.id);
     if (e.type === 'tool' && (V.state === 'THINKING' || V.state === 'USING TOOLS')) setV('USING TOOLS', e.name.replace(/_/g, ' ').toUpperCase());
     if (e.type === 'open_panel') { if (e.symbol) selectSymbol(e.symbol); if (e.panel === 'chart' || e.panel === 'core') closeSheet(); else if (SHEETS[e.panel]) openSheet(e.panel); else if (e.panel === 'risk') openSheet('help'); }
-    if (e.type === 'task' && S.sheet === 'backtest') SHEETS.backtest.tasks(); }
+    if (e.type === 'task' && S.sheet === 'backtest') SHEETS.backtest.tasks();
+    if (e.type === 'open_url') openLink(e.url, e.label); }
+  const busy = (st.tasks || []).filter(t => t.status === 'running' || t.status === 'queued').length;
+  if (V.state === 'DORMANT') $('#vstateText').textContent = 'SYSTEM STATUS · DORMANT' + (busy ? ` · AGENTS WORKING (${busy})` : '');
+}
+
+function openLink(url, label) {
+  const safe = /^(https:\/\/|\/sites\/)/.test(url || '') ? url : null; if (!safe) return;
+  const w = window.open(safe, '_blank', 'noopener,noreferrer');
+  const el = document.createElement('div'); el.className = 'toast';
+  el.innerHTML = `<b>${esc(label || 'Link')}</b>${w ? 'Opened in a new tab. ' : 'Your browser blocked the pop-up. '}<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer" style="color:var(--glow2)">Open it</a>`;
+  $('#toasts').prepend(el); setTimeout(() => el.remove(), 15000);
 }
 
 /* ============================ overlay pages ============================ */
@@ -680,12 +691,18 @@ SHEETS.memory = { title: 'MEMORY · WHAT JARVIS REMEMBERS', render() {
 
 SHEETS.activity = { title: 'ACTIVITY · WHAT THE SYSTEM AND THE AI ACTUALLY DID', render() {
   const tab = S.sheetOpts.tab || 'events';
-  body().innerHTML = `<div class="tabs">${[['events', 'FLEET EVENTS'], ['tools', 'AI TOOL CALLS'], ['chat', 'CONVERSATION'], ['audit', 'AUDIT CHAIN']].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div><div id="actB">Loading…</div>`;
+  body().innerHTML = `<div class="tabs">${[['events', 'FLEET EVENTS'], ['tools', 'AI TOOL CALLS'], ['research', 'RESEARCH REPORTS'], ['chat', 'CONVERSATION'], ['audit', 'AUDIT CHAIN']].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div><div id="actB">Loading…</div>`;
   body().querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.sheetOpts.tab = b.dataset.tab; this.render(); });
   api('/api/activity').then(a => { const el = $('#actB'); if (!el) return;
     if (tab === 'events') el.innerHTML = `<table class="t"><thead><tr><th>TIME</th><th>BOT</th><th>EVENT</th><th>CORRELATION ID</th></tr></thead><tbody>${(a.events || []).map(e => `<tr><td>${esc(e.t)}</td><td>${esc(e.bot)}</td><td>${esc(e.event)}</td><td class="num">${esc(e.cid || '')}</td></tr>`).join('')}</tbody></table>${(a.events || []).length ? '' : '<p class="note dim">No events yet — they appear when bots print signals, fill orders or get paused.</p>'}`;
     if (tab === 'tools') el.innerHTML = `<table class="t"><thead><tr><th>TIME</th><th>CHANNEL</th><th>TOOL</th><th>TIER</th><th>OK</th><th>ARGS / ERROR</th></tr></thead><tbody>${(a.tool_audit || []).map(t => `<tr><td>${new Date(t.ts * 1000).toLocaleTimeString()}</td><td>${esc(t.channel)}</td><td>${esc(t.tool)}</td><td>${esc(t.tier)}</td><td>${t.ok ? '<span class="tag pass">OK</span>' : '<span class="tag fail">DENIED</span>'}</td><td style="font-size:11px">${esc(t.ok ? t.args : t.error)}</td></tr>`).join('')}</tbody></table>`;
     if (tab === 'chat') el.innerHTML = (a.messages || []).map(m => `<div class="note" style="margin-bottom:8px"><b style="color:${m.role === 'user' ? 'var(--glow2)' : '#fff'}">${m.role === 'user' ? 'YOU' : 'JARVIS'}</b> <span class="dim">${esc(m.channel)} · ${new Date(m.created_at * 1000).toLocaleString()}</span><br>${esc(m.content)}</div>`).join('') || '<p class="note dim">No conversation yet.</p>';
+    if (tab === 'research') api('/api/tasks').then(async t => { const rs = (t.tasks || []).filter(x => x.kind === 'research');
+      if (!rs.length) { el.innerHTML = '<p class="note dim">No research yet. Ask: “Jarvis, research what changed in crypto regulation in Canada this month.”</p>'; return; }
+      const full = await Promise.all(rs.slice(0, 8).map(x => api('/api/task?id=' + encodeURIComponent(x.id))));
+      el.innerHTML = full.map(x => `<div class="card"><h4>${esc(x.title)} · ${esc(x.status.toUpperCase())}</h4>${x.result ? `<div class="note" style="white-space:pre-wrap">${esc(x.result.report)}</div>
+        <div style="margin-top:6px">${(x.result.sources || []).map(s => `<a class="pill" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc((s.title || s.url).slice(0, 60))}</a>`).join('')}</div>
+        <div class="note dim">${x.result.sources_read} sources read · ${esc(x.result.model || '')} · ${esc(x.result.finished_mt || '')}</div>` : `<div class="note">${esc(x.detail || x.error || '')}</div>`}</div>`).join(''); });
     if (tab === 'audit') el.innerHTML = `<p class="note">The decision log (state/audit.jsonl) is a hash chain: editing any past line breaks it.</p><div class="big" style="margin:10px 0">${a.audit_chain_ok ? '<span class="tag pass" style="font-size:14px">CHAIN INTACT</span>' : '<span class="tag fail" style="font-size:14px">CHAIN BROKEN</span>'}</div>`; });
 } };
 

@@ -94,12 +94,16 @@ class Fleet:
         sess = nyse_session(now)
         closed_market = mk == "stock" and not sess["open"]
         age = bars.age_s()
-        row["data_age_s"] = None if closed_market else round(age or 0)
+        # Bots sheet rule: stale if the last CLOSED bar is older than bar size + 15 min. So the number the risk
+        # rules compare with 15 min is the LAG past the moment the next bar should have closed, not the raw age.
+        lag = None if age is None else max(0.0, age - BAR_SECONDS[bar])
+        row["bar_age_s"] = None if age is None else round(age)
+        row["data_age_s"] = None if closed_market else round(lag if lag is not None else 1e9)
         row["last_bar_time"] = datetime.fromtimestamp(bars.last_close_time(), timezone.utc).isoformat(timespec="minutes")
         row["last_price"] = bars.c[-1]; row["source"] = bars.source
         sp = make_spec(sid, library.settings_for(sid))
         if sym in MAJORS and len(bars) >= 200:
-            big = self.data.get(sym, bar, 3000, refresh=False)
+            big = self.data.get(sym, bar, 3000)          # same full series as the portal panel
             vstates = volatility.gate(big["bars"])["states"][-len(bars):] if big["ok"] and len(big["bars"]) >= len(bars) else None
         else:
             vstates = None
@@ -123,7 +127,7 @@ class Fleet:
         intent = policy.Intent(bot=bid, symbol=sym, market=mk, now=now, bar=bar, gate_verdict=row["verdict"] or "REJECT",
                                role_passed=bool(passed), signal_long_new=new_long, vol_state=vstates[-1], stop_atr=stop_atr,
                                stop_pct=stop_pct, cost_roundtrip_pct=cost_pct,
-                               data_age_s=(age if not closed_market else 1e9), market_ok=bool(rv and rv > 0.3),
+                               data_age_s=(lag if (not closed_market and lag is not None) else 1e9), market_ok=bool(rv and rv > 0.3),
                                event_blackout=event_blackout(now), earnings_calendar_supplied=False,
                                built_for_dead_hours=False, swing_mode=bool(sp["params"].get("swing")), swing_approved=False)
         st = policy.State(open_stock=sum(1 for p in self.paper.s["positions"].values() if p["market"] == "stock"),

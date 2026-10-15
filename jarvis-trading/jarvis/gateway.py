@@ -10,7 +10,7 @@ Tiers:  T0 public (general info, public prices)   T1 owner read (portfolio, bots
         T2 owner operate (sandbox backtests, alert rules, memory, UI navigation) - desktop only
 """
 from __future__ import annotations
-import json, re, time
+import json, os, re, time
 from datetime import datetime, timezone
 import policy, tools as kit_tools, voice_router                       # kit/
 from engine import library, volatility
@@ -18,6 +18,12 @@ from engine.data_feed import ET, MT, nyse_session, market_kind
 from engine.backtest import VENUES
 
 LEVEL_TIERS = {"anonymous": {"T0"}, "owner_read": {"T0", "T1", "RR"}, "owner_operate": {"T0", "T1", "RR", "T2"}}
+SITES = {   # fixed allowlist - Jarvis can never open an arbitrary URL
+    "tradingview": "https://www.tradingview.com/chart/?symbol={tv}", "yahoo_finance": "https://finance.yahoo.com/quote/{sym}",
+    "coinbase": "https://www.coinbase.com/price/{base_l}", "kraken": "https://pro.kraken.com/app/trade/{base_l}-usd",
+    "ndax": "https://ndax.io/", "fomc_calendar": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+    "nyse_hours": "https://www.nyse.com/markets/hours-calendars", "anthropic_console": "https://console.anthropic.com/",
+}
 PANELS = ["core", "chart", "strategies", "backtest", "fleet", "alerts", "memory", "activity", "risk", "help"]
 SYMBOL = r"^[A-Z0-9.\-]{1,20}$"
 BOT = r"^A\d{3}$"
@@ -331,6 +337,35 @@ class Gateway:
 
         def forget(args, s): a.store.forget(args["memory_id"]); return ok({"forgotten": args["memory_id"]}, "long-term memory")
         self.add("forget_memory", "T2", "Delete one remembered item by id.", obj({"memory_id": S(maxLength=20)}, ["memory_id"]), forget, desk)
+
+        def research(args, s):
+            if not a.brain.ready()[0]: return err("SETUP_REQUIRED", "research needs the AI brain (ANTHROPIC_API_KEY)")
+            return ok({"task_id": a.start_research(args["question"], s.get("id")), "status": "queued",
+                       "note": "Runs in the background; Abhi gets a notification when the report is ready."}, "task registry")
+        self.add("start_research", "T2", "Start a background research job on the public web (many sources, cited). Use for questions that need "
+                 "more than a quick search. Returns a task id; read the report later with get_tasks.",
+                 obj({"question": S(maxLength=600)}, ["question"]), research, desk)
+
+        def build_site(args, s):
+            slug = re.sub(r"[^a-z0-9]+", "-", args["title"].lower()).strip("-")[:40] or "site"
+            os.makedirs(a.sites_dir, exist_ok=True)
+            with open(os.path.join(a.sites_dir, slug + ".html"), "w", encoding="utf-8") as f: f.write(args["html"])
+            url = f"/sites/{slug}.html"
+            a.ui_event({"type": "open_url", "url": url, "label": f"Website: {args['title']}"})
+            return ok({"saved": url, "note": "Saved locally and opened in a sandboxed tab."}, "website builder")
+        self.add("build_website", "T2", "Build a website for Abhi's web-design business (ElevatedSteps) or anyone he asks: pass ONE complete "
+                 "self-contained HTML file (inline CSS/JS, modern, mobile-friendly, realistic copy). It is saved and opened for him.",
+                 obj({"title": S(maxLength=80), "html": S(maxLength=400_000)}, ["title", "html"]), build_site, desk)
+
+        def open_site(args, s):
+            sym = (args.get("symbol") or "BTC-USD").upper()
+            base = sym[:-4] if sym.endswith("-USD") else sym
+            tv = f"COINBASE:{base}USD" if sym.endswith("-USD") else sym
+            url = SITES[args["site"]].format(sym=sym, base=base, base_l=base.lower(), tv=tv)
+            a.ui_event({"type": "open_url", "url": url, "label": args["site"].replace("_", " ").title() + (f" · {sym}" if "{" in SITES[args["site"]] else "")})
+            return ok({"opened": url}, "allowlisted link")
+        self.add("open_website", "T2", "Open a website on Abhi's screen from a FIXED list only: " + ", ".join(SITES) + ". Optional symbol for chart/quote pages.",
+                 obj({"site": S(enum=list(SITES)), "symbol": S(pattern=SYMBOL)}, ["site"]), open_site, desk)
 
         def open_panel(args, s):
             a.ui_event({"type": "open_panel", "panel": args["panel"], "symbol": args.get("symbol")})

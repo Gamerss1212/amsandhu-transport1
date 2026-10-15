@@ -28,6 +28,8 @@ CORE_RULES = """
 - Use web search only for things that change (news, releases, prices outside the app, schedules). Cite where it came from
   in a few words. A page's crawl date is not its publication date.
 - For general knowledge (science, history, ideas, writing, coding help) just answer; no tools needed.
+- Quick current facts: use web_search yourself. A bigger question that needs many sources: call start_research, tell Abhi
+  you will let him know when the report is ready, and answer later from get_tasks.
 
 ## Voice style
 Your reply is usually spoken aloud. Latency-sensitive; begin your visible answer immediately.
@@ -53,6 +55,27 @@ def system_prompt() -> str:
             "Apply it whenever the topic is the trading system. Everything else: be a normal, excellent assistant.\n\n" + rulebook)
 
 
+def result_urls(content: list) -> set:
+    """URLs that web search / fetch ACTUALLY returned in this response (citations must point at one of these)."""
+    urls = set()
+    for b in content:
+        if b.get("type") in ("web_search_tool_result", "web_fetch_tool_result"):
+            c = b.get("content")
+            for it in (c if isinstance(c, list) else [c] if isinstance(c, dict) else []):
+                if isinstance(it, dict) and it.get("url"): urls.add(it["url"])
+    return urls
+
+
+def cited_sources(content: list, seen_urls: set, sources: list) -> list:
+    """Append citations whose URL was really retrieved; drop any the model made up."""
+    for b in content:
+        for c in b.get("citations") or []:
+            u = c.get("url")
+            if u and u in seen_urls and u not in [s["url"] for s in sources]:
+                sources.append({"url": u, "title": c.get("title") or u})
+    return sources
+
+
 def speakable(text: str) -> str:
     t = re.sub(r"https?://\S+", "", text)
     t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
@@ -63,6 +86,14 @@ def speakable(text: str) -> str:
     t = re.sub(r"\n+", ". ", t)
     t = re.sub(r"\.\s*\.", ".", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+def price_text(x: float) -> str:
+    """Readable price for speech/text: 81,523.93 / 342.96 / 0.1213 (never scientific notation)."""
+    a = abs(x)
+    if a >= 100: return f"{x:,.2f}"
+    if a >= 1: return f"{x:,.3f}".rstrip("0").rstrip(".")
+    return f"{x:.4g}" if a >= 1e-4 else f"{x:.8f}".rstrip("0")
 
 
 KNOWN_SYMBOLS = None
@@ -143,7 +174,8 @@ class JarvisCore:
         now = datetime.now(timezone.utc).astimezone(MT)
         mems = self.app.store.memories(text, 6) or self.app.store.memories(None, 4)
         short = {k: v for k, v in st.items() if k.startswith("last_") and k not in ("last_tools",)}
-        lines = [f"now: {now.strftime('%A %Y-%m-%d %I:%M %p')} MT", f"channel: {sess['channel']} | permission: {sess['auth_level']}",
+        lines = [f"now: {now.strftime('%A %Y-%m-%d %I:%M %p')} MT | owner: {self.app.cfg.get('owner_name', 'Abhi')}",
+                 f"channel: {sess['channel']} | permission: {sess['auth_level']}",
                  f"data mode: {self.app.data.mode} ({'SIMULATED demo prices - say so if you quote them' if self.app.data.mode == 'demo' else 'real feeds'}) | paper trading only",
                  f"short-term context: {json.dumps(short) if short else 'none'}"]
         if mems: lines.append("owner-approved memories:\n" + "\n".join(f"- [{m['id']}] {m['text']}" for m in mems))
@@ -165,13 +197,8 @@ class JarvisCore:
             res = self.brain.create(route, self._system, msgs, tools)
             model = res.get("model")
             content = res["content"]
-            for b in content:                                                    # remember which URLs search really returned
-                if b.get("type") in ("web_search_tool_result", "web_fetch_tool_result"):
-                    c = b.get("content")
-                    items = c if isinstance(c, list) else [c] if isinstance(c, dict) else []
-                    for it in items:
-                        if isinstance(it, dict) and it.get("url"): seen_urls.add(it["url"])
-                    used.append(b.get("type").replace("_tool_result", ""))
+            seen_urls |= result_urls(content)                                    # remember which URLs search really returned
+            used += [b["type"].replace("_tool_result", "") for b in content if b.get("type", "").endswith("_tool_result")]
             stop = res["stop_reason"]
             msgs.append({"role": "assistant", "content": content})
             if stop == "pause_turn" and continuations < 4:
@@ -191,11 +218,7 @@ class JarvisCore:
                 msgs.append({"role": "user", "content": results})
                 continue
             reply = " ".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
-            for b in content:
-                for c in b.get("citations") or []:
-                    u = c.get("url")
-                    if u and u in seen_urls and u not in [s["url"] for s in sources]:
-                        sources.append({"url": u, "title": c.get("title") or u})
+            cited_sources(content, seen_urls, sources)
             if stop == "max_tokens": reply += " (I ran out of room there; ask me to continue.)"
             return reply or "Done.", used, model, sources, route
         return "I stopped after too many steps. Try asking a narrower question.", used, model, sources, route
@@ -229,7 +252,7 @@ class JarvisCore:
         if sym and re.search(r"price|doing|how('s| is)|quote|at\b|trading", t) or (sym and len(t.split()) <= 3):
             r = call("get_quote", {"symbol": sym})
             if r["ok"]:
-                q = r["data"]; return (f"{sym} last closed at {q['price']:,.4g}, {q['change_pct']:+.2f}% over 24 bars "
+                q = r["data"]; return (f"{sym} last closed at {price_text(q['price'])}, {q['change_pct']:+.2f}% over 24 bars "
                                        f"({q['source']}{', stale' if q['stale'] else ''})."), used
             return f"I can't get a price for {sym} right now.", used
         if re.search(r"portfolio|equity|how much|p&l|pnl|account|made|lost|balance", t):

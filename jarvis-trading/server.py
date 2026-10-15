@@ -135,6 +135,13 @@ class H(BaseHTTPRequestHandler):
             f = os.path.join(WEB, name)
             if ".." in name or not os.path.isfile(f): return self._send(404, {"error": "not found"})
             return self._send(200, open(f, "rb").read(), TYPES.get(os.path.splitext(f)[1], "application/octet-stream"))
+        if p.startswith("/sites/"):
+            # Websites Jarvis built. Served in a CSP sandbox (opaque origin): the page cannot read the portal's token or call the API.
+            if not self._host_ok(): return self._send(403, {"error": "wrong host"})
+            name = os.path.basename(p)
+            f = os.path.join(APP.sites_dir, name)
+            if not (name.endswith(".html") and os.path.isfile(f)): return self._send(404, {"error": "not found"})
+            return self._send(200, open(f, "rb").read(), TYPES[".html"], {"Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups"})
         if p == "/api/health": return self._send(200, {"ok": True, "paper_only": True})
         if not p.startswith("/api/"): return self._send(404, {"error": "not found"})
         if not self._auth(): return self._send(403, {"error": "forbidden"})
