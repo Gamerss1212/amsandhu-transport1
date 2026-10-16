@@ -326,7 +326,7 @@ def g_orb_stocks_in_play(ctx, p):
         if ss[i] != i: continue
         rv = b.v[i] / (sum(first_vols[-14:]) / len(first_vols[-14:])) if len(first_vols) >= 5 else 0
         first_vols.append(b.v[i])
-        if i + 1 < ctx.n and rv >= p.get("rvol", 1.0) and a[i] and a[i] / b.c[i] * math.sqrt(78) > 0.01 and b.c[i] > b.o[i]:
+        if rv >= p.get("rvol", 1.0) and a[i] and a[i] / b.c[i] * math.sqrt(78) > 0.01 and b.c[i] > b.o[i]:
             out[i] = 1
     return out
 

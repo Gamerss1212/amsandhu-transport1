@@ -29,8 +29,9 @@ def validate(rule: dict) -> dict:
                 (m.startswith("price:") and 3 <= len(m) <= 30)):
             raise ValueError("unsupported metric")
         if c.get("operator") not in OPS: raise ValueError("operator must be one of > >= < <=")
-        try: Decimal(str(c.get("threshold")))
+        try: thr = Decimal(str(c.get("threshold")))
         except InvalidOperation: raise ValueError("threshold must be a decimal number")
+        if not thr.is_finite(): raise ValueError("threshold must be a finite decimal number")
         c.setdefault("initial_true_policy", "wait_for_crossing")
     if k == "vol_state" and c.get("state") not in ("LOUD", "NORMAL", "QUIET"): raise ValueError("state must be LOUD/NORMAL/QUIET")
     if k == "scheduled":
@@ -126,7 +127,8 @@ class AlertEngine:
             st["prev_true"], st["last_value"], st["note"] = ok, str(val), ""
             if prev is None and c.get("initial_true_policy") == "wait_for_crossing": return None, None
             if ok and not prev:
-                return f"{local.date()}:{st.get('n', 0) + 1}", f"{c['metric'].replace('price:', '')} is {val} ({c['operator']} {c['threshold']})"
+                st["n"] = st.get("n", 0) + 1
+                return f"{local.date()}:{st['n']}", f"{c['metric'].replace('price:', '')} is {val} ({c['operator']} {c['threshold']})"
             return None, None
         if k == "vol_state":
             got = self.metrics(f"vol:{c['symbol']}")

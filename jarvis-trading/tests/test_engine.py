@@ -10,7 +10,6 @@ Rules these tests follow:
   - All state goes to temporary folders. Nothing is written to the project's state/ folder, and the library
     snapshot (data/library.json) is redirected to a temp copy so a rebuild from the xlsx can never touch data/.
   - Source files are never modified. Tests that expose a real source bug are kept, marked
-    @unittest.expectedFailure, and carry a 'SOURCE BUG:' comment.
 """
 from __future__ import annotations
 import csv, json, os, random, shutil, sys, tempfile, unittest, warnings
@@ -478,7 +477,6 @@ class TestStrategies(unittest.TestCase):
     # SOURCE BUG: engine/strategies.py g_orb_stocks_in_play only signals when `i + 1 < ctx.n`, i.e. when a LATER
     # bar already exists. On the newest closed bar (what the fleet/live check looks at) it can never fire, while the
     # backtest sees the signal once the next bar is appended -> backtest and live disagree (look-ahead dependence).
-    @unittest.expectedFailure
     def test_orb_stocks_in_play_signal_on_newest_bar(self):
         b = demo_bars("AAPL", "5m", 3000, now=NOW)
         full = GENERATORS["orb_stocks_in_play"](Ctx(b), {"rvol": 1.0})
@@ -808,7 +806,6 @@ class TestBacktestStockSession(unittest.TestCase):
     # SOURCE BUG: engine/backtest.py step 4 closes a stock trade at the close of the first bar whose CLOSE time is
     # >= 3:55 pm ET. On 15m (and 1h) bars that bar is the 3:45 pm (3:00/3:30 pm) bar, which closes at 4:00 pm, so the
     # trade is booked at the 4:00 pm closing price - after the owner's "flat by 3:55 pm ET" deadline.
-    @unittest.expectedFailure
     def test_15m_exit_bar_closes_by_1555_et(self):
         b = self.two_days_15m()
         t = self.run_sig(b, [23])["trades"][0]
@@ -1049,7 +1046,6 @@ class TestValidationComparesLikeWithLike(unittest.TestCase):
     # the real test used meme rules (4 ATR stop) and the Settings cell. The placebo percentile then compares unlike
     # trades (on demo DOGE the random-entry mean R drops from -0.16R to -0.20R), which makes the strategy look better
     # than random and loosens the gate.
-    @unittest.expectedFailure
     def test_role_placebo_uses_same_market_and_settings_as_the_test(self):
         real = self.strategy_runs()[0]
         plc = self.placebo_runs()
@@ -1075,7 +1071,6 @@ class TestValidationComparesLikeWithLike(unittest.TestCase):
     # their Settings cells, so e.g. every donchian_trend.*.trail variant runs with stop_atr=2.0 and no trail_atr
     # instead of the sheet's entry=55, exit=20, trail_atr=3.0 (on stocks that is a 2 ATR instead of a 3 ATR stop).
     # The PBO is then measured on variants that are not the ones in the library.
-    @unittest.expectedFailure
     def test_full_report_pbo_variants_run_with_their_settings(self):
         self.assertTrue(self.report_calls)
         wrong = [(c["strategy"], c["params"]) for c in self.report_calls
@@ -1151,7 +1146,6 @@ class TestPaperBroker(unittest.TestCase):
     # SOURCE BUG: engine/paper_broker.py on_bars uses `last = bars.c[k - 1] if k > 0 else fill`. When the bars handed in
     # start AT the fill bar (the signal bar has scrolled out of the window, e.g. after the app was off for 400+ bars),
     # the collar compares the fill with itself and lets ANY gap through (here +10%). It should fail closed.
-    @unittest.expectedFailure
     def test_collar_fails_closed_without_a_reference_close(self):
         rows = [(100.0, 101.0, 99.0, 100.0)] * 21 + [(110.0, 110.5, 109.5, 110.0)] * 4       # +10% gap at bar 21
         book, b = Book(self.dir, "paper"), self.bars(rows)
@@ -1180,7 +1174,6 @@ class TestPaperBroker(unittest.TestCase):
     # SOURCE BUG: engine/paper_broker.py closes on the first bar with `t + bar >= flat_by`, i.e. the first bar that ENDS
     # at or after 3:55 pm ET. On 15m bars that is the 3:45 pm bar (ends 4:00 pm), so the paper position is still open
     # after the 3:55 pm deadline and is booked at the 4:00 pm close.
-    @unittest.expectedFailure
     def test_stock_15m_position_flat_by_1555_et(self):
         c, flat_by = self.stock_15m_flat()
         self.assertLessEqual(c["exit_t"] + BAR_SECONDS["15m"], flat_by)
@@ -1371,7 +1364,6 @@ class TestFleetDemoCycle(unittest.TestCase):
 
     # SOURCE BUG: Fleet._auto_pause writes flags["updated"] = self.last_cycle, but cycle() only sets last_cycle AFTER
     # _auto_pause runs, so flags.json carries the PREVIOUS cycle's time (None on the first cycle).
-    @unittest.expectedFailure
     def test_flags_updated_timestamp_is_this_cycle(self):
         flags = read_json(os.path.join(self.dir, "flags.json"))
         self.assertIsNotNone(flags["updated"], "flags.json 'updated' should be the time of the cycle that wrote it")
@@ -1429,7 +1421,6 @@ class TestFleetFailClosed(unittest.TestCase):
     # SOURCE BUG: engine/fleet.py cycle() builds the row for a bot whose check raised as {**prev, ...} without a new
     # correlation_id, so the WAIT decision of that cycle has no id on the first cycle (None) and reuses the previous
     # cycle's id afterwards. The Fleet feed sheet says correlation_id is "Required", one id per decision.
-    @unittest.expectedFailure
     def test_crashing_bot_row_gets_a_fresh_correlation_id(self):
         d = tmpdir(self)
         self.crash_cycle(d)

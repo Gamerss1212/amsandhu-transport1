@@ -114,7 +114,8 @@ def full_report(bars: Bars, strategy_id: str, state_dir: str, settings=None, ben
     variants = _sibling_variants(sp["generator"])
     pbo = None
     if len(variants) >= 2:
-        per = [bt.run(bars, v, benchmark=benchmark, keep_equity=False, **kw)["trades"] for v in variants]
+        from . import library
+        per = [bt.run(bars, v, library.settings_for(v), benchmark=benchmark, keep_equity=False, **kw)["trades"] for v in variants]
         if sum(1 for p in per if p) >= 2: pbo = pbo_cscv(weekly_matrix(per))
     gate = quality_gate.run_gate([{"date": t["date"], "r_net": t["r_net"], "cost_r": t["cost_r"]} for t in tt],
                                  n_trials=n_trials, pbo=pbo, beats_buy_hold=beats, placebo_pct=plc)
@@ -192,16 +193,19 @@ def role_test(role: str, data, state_dir: str, bar: str | None = None, max_symbo
 
 
 def _pooled_placebo(series, sid, bm, actual_mean, n_trades, draws=60, seed=5):
+    from . import library
     rng = random.Random(seed); means = []
     items = list(series.values())
     per = max(1, n_trades // max(1, len(items)))
     for _ in range(draws):
         rs = []
         for b, bars in items:
+            mk = "meme" if library.is_meme(b) else market_kind(bars.symbol)
             n = len(bars); cut = int(n * 0.6)
             sig = [0] * n
             for k in rng.sample(range(cut, n - 1), min(n - cut - 1, per * 3)): sig[k] = 1
-            rs += [t["r_net"] for t in bt.run(bars, sid, signals=sig, benchmark=bm, start=cut, keep_equity=False)["trades"][:per]]
+            rs += [t["r_net"] for t in bt.run(bars, sid, library.settings_for(sid), market=mk, signals=sig, benchmark=bm, start=cut,
+                                              keep_equity=False)["trades"][:per]]
         if rs: means.append(sum(rs) / len(rs))
     return round(100 * sum(1 for m in means if m < actual_mean) / len(means), 1) if means else None
 

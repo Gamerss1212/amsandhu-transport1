@@ -209,6 +209,7 @@ class Fleet:
                 except Exception as e:
                     row = {**prev, "bot_id": b["bot_id"], "symbol": b["symbol"], "role": b["role"], "status": b["status"],
                            "error": f"{type(e).__name__}: {e}", "decision": "WAIT", "reason": "Check failed; no trade",
+                           "correlation_id": uuid.uuid4().hex[:12], "bullets": "- WAIT\n- Check failed; no trade",
                            "trace": traceback.format_exc(limit=2)}
                 self.feed[b["bot_id"]] = row
                 self.progress["done"] += 1
@@ -264,7 +265,7 @@ class Fleet:
             if not d.get("heartbeat_age_s"): d["heartbeat_age_s"] = 0
             bots.append(d)
         actions = policy.auto_pause_actions(bots, self.totals, self.cfg)
-        flags = {"half_size": {}, "pause_new_crypto": False, "pause_new_meme": False, "updated": self.last_cycle}
+        flags = {"half_size": {}, "pause_new_crypto": False, "pause_new_meme": False, "updated": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         apply, info = [], []
         for a in actions:
             if a.target == "FLEET":

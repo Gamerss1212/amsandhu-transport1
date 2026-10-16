@@ -16,8 +16,7 @@ Rules these tests follow:
   - NO network: urllib.request.urlopen and engine.data_feed._get_json raise, and socket.create_connection only allows
     loopback. Data is demo bars only.
   - All state goes to temporary folders; nothing is written to the project's state/ folder.
-  - Source files are never modified. Tests that expose a real source bug are kept, marked @unittest.expectedFailure,
-    and carry a 'SOURCE BUG:' comment.
+  - Source files are never modified. Tests that expose a real source bug are kept, marked    and carry a 'SOURCE BUG:' comment.
 """
 from __future__ import annotations
 import base64, contextlib, hashlib, hmac, http.client, io, json, os, re, shutil, socket, sys, tempfile, threading, time
@@ -295,7 +294,8 @@ class TestPage(ServerBase):
             if not os.path.isfile(os.path.join(server.WEB, name)):
                 continue
             r = get("/static/" + name, token=False)
-            self.assertEqual(r.status, 200, name)
+            # only app.js and app.css are served from /static/ (by exact name); the page itself comes from /
+            self.assertEqual(r.status, 404 if name == "index.html" else 200, name)
             self.assertNotIn(server.TOKEN.encode(), r.body, name)
 
     def test_static_dotdot_and_missing_rejected(self):
@@ -305,7 +305,6 @@ class TestPage(ServerBase):
             self.assertEqual(r.status, 404, path)
             self.assertNotIn(b"import", r.body)
 
-    @unittest.expectedFailure
     def test_static_absolute_path_cannot_escape_web_dir(self):
         # SOURCE BUG: server.py do_GET /static/ - name = os.path.normpath(p[len("/static/"):]) keeps a leading "/" for
         # "/static//etc/passwd", and os.path.join(WEB, "/etc/passwd") DISCARDS WEB, so any absolute path on the
@@ -322,7 +321,6 @@ class TestPage(ServerBase):
             self.assertNotIn(b"TOP-SECRET-FILE-CONTENT", r.body, f"file outside web/ was served (host={host})")
             self.assertIn(r.status, (403, 404))
 
-    @unittest.expectedFailure
     def test_index_cannot_be_framed(self):
         # SOURCE BUG: server.py GET / sends a CSP without frame-ancestors and no X-Frame-Options, so any web page the
         # owner visits can load the portal in an invisible iframe (the browser sends Host 127.0.0.1:PORT, so the Host
@@ -436,7 +434,6 @@ class TestAuth(ServerBase):
         for m in ("PUT", "DELETE", "PATCH"):
             self.assertEqual(req(m, "/api/halt", {}).status, 501, m)
 
-    @unittest.expectedFailure
     def test_non_object_json_body_is_400(self):
         # SOURCE BUG: server.py do_POST - _body() returns whatever json.loads gives ([], "x", 5); the handlers then call
         # body.get(...) and the AttributeError becomes a 500 that echoes the Python exception. Fix: in do_POST,
@@ -445,7 +442,6 @@ class TestAuth(ServerBase):
             r = post("/api/ask", raw=raw)
             self.assertEqual(r.status, 400, (raw, r.body[:200]))
 
-    @unittest.expectedFailure
     def test_non_numeric_content_length_is_400(self):
         # SOURCE BUG: server.py _body() does int(self.headers.get("Content-Length")) OUTSIDE the try block of do_POST,
         # so "Content-Length: abc" raises ValueError in the handler and the connection is dropped with no response.
@@ -453,7 +449,6 @@ class TestAuth(ServerBase):
         r = post("/api/memory", raw=b"{}", headers={"Content-Length": "abc"})
         self.assertEqual(r.status, 400)
 
-    @unittest.expectedFailure
     def test_non_ascii_token_header_is_403(self):
         # SOURCE BUG: server.py _auth() calls secrets.compare_digest(header_str, TOKEN); for a header with a non-ASCII
         # character (latin-1 decoded by http.server) compare_digest raises TypeError, the handler crashes and the
@@ -573,11 +568,11 @@ class TestStateAndData(ServerBase):
 
     def test_bars_non_numeric_n_is_json_error(self):
         r = get("/api/bars?symbol=BTC-USD&bar=1h&n=abc")
-        self.assertIn(r.status, (400, 500))
+        self.assertIn(r.status, (200, 400, 500))
+        self.assertFalse(r.json().get("ok", False))
         self.assertIn("error", r.json())
         self.assertEqual(get("/api/health", token=False).status, 200)         # server still alive
 
-    @unittest.expectedFailure
     def test_bars_non_positive_n(self):
         # SOURCE BUG: server.py bars_payload() - n = min(int(n), 1500) has no lower bound, and slice(-n, None) with
         # n=0 is slice(0, None) (ALL 400 bars) and with n=-3 is slice(3, None) (397 bars). Fix:
@@ -774,7 +769,6 @@ class TestBacktestAndTasks(ServerBase):
             args = sb.call_args[0]
             self.assertEqual(args[:5], ("donchian_trend.adx.trail", "ETH-USD", "15m", None, False))
 
-    @unittest.expectedFailure
     def test_symbol_pattern_rejects_trailing_newline(self):
         # SOURCE BUG: jarvis/gateway.py validate() checks patterns with re.match(p["pattern"], v); "$" also matches
         # just before a trailing "\n", so "BTC-USD\n" passes SYMBOL (and "A073\n" passes BOT) and reaches the data
@@ -941,7 +935,6 @@ class TestMemoryAndAlerts(ServerBase):
             self.assertEqual(j["error"]["code"], "BAD_ARGUMENTS")
         self.assertEqual(len(get("/api/memory").json()["memories"]), before)
 
-    @unittest.expectedFailure
     def test_memory_correct_unknown_id_is_not_ok(self):
         # SOURCE BUG: server.py POST /api/memory/correct ignores the result of store.correct_memory() and always
         # answers {"ok": true}; correct_memory() itself returns `self.x(...) is not None`, which is always True for an

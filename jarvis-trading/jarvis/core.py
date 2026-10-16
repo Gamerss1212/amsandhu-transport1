@@ -77,11 +77,11 @@ def cited_sources(content: list, seen_urls: set, sources: list) -> list:
 
 
 def speakable(text: str) -> str:
-    t = re.sub(r"https?://\S+", "", text)
-    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
-    t = re.sub(r"\$(-?[\d,]+(?:\.\d+)?)", r"\1 dollars", t)
-    t = re.sub(r"-\$([\d,]+(?:\.\d+)?)", r"minus \1 dollars", t)
-    t = re.sub(r"^\s*[-*•]\s*", "", t, flags=re.M)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)                 # links before URLs
+    t = re.sub(r"https?://\S+", "", t)
+    t = re.sub(r"(?:-\$|\$-)([\d,]+(?:\.\d+)?)", r"minus \1 dollars", t)  # negative before generic
+    t = re.sub(r"\$([\d,]+(?:\.\d+)?)", r"\1 dollars", t)
+    t = re.sub(r"^\s*[-*•](?!\d)\s*", "", t, flags=re.M)              # never strip a minus sign before a digit
     t = re.sub(r"[`*_#>|]", "", t).replace("%", " percent").replace("&", " and ")
     t = re.sub(r"\n+", ". ", t)
     t = re.sub(r"\.\s*\.", ".", t)
@@ -96,6 +96,7 @@ def price_text(x: float) -> str:
     return f"{x:.4g}" if a >= 1e-4 else f"{x:.8f}".rstrip("0")
 
 
+NOT_ALLOWED = "I can't share that on this line. Enter your PIN, or ask at the keyboard."
 KNOWN_SYMBOLS = None
 
 
@@ -256,24 +257,34 @@ class JarvisCore:
                                        f"({q['source']}{', stale' if q['stale'] else ''})."), used
             return f"I can't get a price for {sym} right now.", used
         if re.search(r"portfolio|equity|how much|p&l|pnl|account|made|lost|balance", t):
-            r = call("get_portfolio"); p = r["data"]
+            r = call("get_portfolio")
+            if not r["ok"]: return NOT_ALLOWED, used
+            p = r["data"]
             return (f"Paper equity is {p['equity']:,.2f} dollars. Today's paper P&L {p['pnl_today']:+,.2f}, "
                     f"{p['open_positions']} open paper positions, unrealised {p['unrealized']:+,.2f}."), used
         if re.search(r"agent|bots?\b|fleet|doing", t):
-            r = call("get_fleet_summary"); f = r["data"]
+            r = call("get_fleet_summary")
+            if not r["ok"]: return NOT_ALLOWED, used
+            f = r["data"]
             c = f.get("status_counts") or {}
             return (f"{f.get('active', 0)} bots active: " + ", ".join(f"{v} {k.lower()}" for k, v in c.items()) +
                     f". {f.get('signals_now', 0)} signals right now, {f.get('buy_answers', 0)} BUY answers. "
                     f"Gate passed by {len(f.get('gate_passed_roles') or [])} roles, so live answers are WAIT."), used
         if re.search(r"risk|limit|halt", t):
-            r = call("get_risk_status"); d = r["data"]
+            r = call("get_risk_status")
+            if not r["ok"]: return NOT_ALLOWED, used
+            d = r["data"]
             return (f"HALT flag {'ON' if d['halt_flag'] else 'off'}. {len(d['paused_bots'])} bots paused. Trades today "
                     f"{d['used']['trades_today']} of {d['limits']['max_trades_per_day']}. Day loss limit {d['limits']['fleet_day_loss_pct']}%."), used
         if re.search(r"strateg", t):
-            r = call("search_strategies", {"limit": 3}); d = r["data"]["totals"]
+            r = call("search_strategies", {"limit": 3})
+            if not r["ok"]: return NOT_ALLOWED, used
+            d = r["data"]["totals"]
             return f"The library has {d['keep']} kept strategy variants and {d['new']} new ones, all built and backtestable in the Backtest Lab.", used
         if re.search(r"\btime\b|clock|market open|is the market", t):
-            d = call("get_time")["data"]
+            r = call("get_time")
+            if not r["ok"]: return NOT_ALLOWED, used
+            d = r["data"]
             return f"It's {d['mountain_time']}. NYSE is {'open' if d['nyse_open'] else 'closed'}.", used
         return ("I'm in offline mode, so I can only do the basics: status, report, halt, pause a bot, prices, the paper portfolio, "
                 "the volatility gate, bots, risk, and BUY or WAIT for a symbol. Add an Anthropic API key for full conversation."), used

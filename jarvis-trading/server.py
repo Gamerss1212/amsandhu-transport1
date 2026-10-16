@@ -71,7 +71,8 @@ def bars_payload(q: dict) -> dict:
     sym = (q.get("symbol") or ["BTC-USD"])[0].upper()
     bar = (q.get("bar") or ["1h"])[0]
     if bar not in BAR_SECONDS: return {"ok": False, "error": "bad bar"}
-    n = min(int((q.get("n") or ["240"])[0]), 1500)
+    try: n = max(1, min(int((q.get("n") or ["240"])[0]), 1500))
+    except ValueError: return {"ok": False, "error": "bad n"}
     g = APP.data.get(sym, bar, max(n, 400))
     if not g["ok"]: return {"ok": False, "error": g["error"]}
     b = g["bars"]
@@ -110,10 +111,12 @@ class H(BaseHTTPRequestHandler):
         if not self._host_ok(): return False
         o = self.headers.get("Origin")
         if o and o not in (f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"): return False
-        return secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), TOKEN)
+        return secrets.compare_digest(self.headers.get("X-Jarvis-Token", "").encode("utf-8", "surrogateescape"), TOKEN.encode())
 
     def _body(self):
-        n = min(int(self.headers.get("Content-Length", 0) or 0), 200_000)
+        try: n = min(int(self.headers.get("Content-Length", 0) or 0), 200_000)
+        except ValueError: return None
+        if n < 0: return None
         raw = self.rfile.read(n) if n else b""
         ctype = self.headers.get("Content-Type", "")
         if "application/x-www-form-urlencoded" in ctype:
@@ -183,6 +186,7 @@ class H(BaseHTTPRequestHandler):
         if not self._auth(): return self._send(403, {"error": "forbidden"})
         body = self._body()
         if body is None: return self._send(400, {"error": "bad json"})
+        if not isinstance(body, dict): return self._send(400, {"error": "body must be a JSON object"})
         a = APP
         try:
             if p == "/api/ask":
@@ -199,7 +203,8 @@ class H(BaseHTTPRequestHandler):
             if p == "/api/memory": return self._send(200, a.gateway.call("remember", {"text": str(body.get("text", "")), "kind": body.get("kind", "preference")}, sess))
             if p == "/api/memory/delete": return self._send(200, a.gateway.call("forget_memory", {"memory_id": str(body.get("id", ""))}, sess))
             if p == "/api/memory/correct":
-                a.store.correct_memory(str(body.get("id", "")), str(body.get("text", ""))); return self._send(200, {"ok": True})
+                ok = a.store.correct_memory(str(body.get("id", "")), str(body.get("text", "")))
+                return self._send(200 if ok else 404, {"ok": bool(ok)})
             if p == "/api/halt": return self._send(200, a.gateway.call("halt_fleet", {"reason": str(body.get("reason", "HALT button"))[:200]}, sess))
             if p == "/api/pause": return self._send(200, a.gateway.call("pause_agent", {"bot_id": str(body.get("bot_id", ""))}, sess))
             if p == "/api/task/cancel": return self._send(200, {"ok": a.tasks.cancel(str(body.get("id", "")))})

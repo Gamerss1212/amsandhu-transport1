@@ -91,9 +91,11 @@ class Book:
                 if halt:
                     self.s["pending"].pop(bot); events.append({"bot": bot, "event": "order cancelled (HALT)"})
                 elif nxt:
-                    k = nxt[0]; fill = bars.o[k]; last = bars.c[k - 1] if k > 0 else fill
+                    k = nxt[0]; fill = bars.o[k]; last = bars.c[k - 1] if k > 0 else None
                     self.s["pending"].pop(bot)
-                    if abs(fill / last - 1) * 100 > COLLAR_PCT:
+                    if last is None:
+                        events.append({"bot": bot, "event": "fill refused: no previous close to check the price collar"})
+                    elif abs(fill / last - 1) * 100 > COLLAR_PCT:
                         events.append({"bot": bot, "event": f"fill refused by price collar ({fill:.6g} vs {last:.6g})"})
                     else:
                         stop = fill - pend["stop_atr"] * pend["atr"]
@@ -117,7 +119,7 @@ class Book:
                     elif o <= pos["stop"]: why, px = "stop (gap)", o
                     elif l <= pos["stop"]: why, px = "stop", pos["stop"]
                     elif pos["target"] and h >= pos["target"]: why, px = "target", max(o, pos["target"])
-                    elif t + BAR_SECONDS[bars.bar] >= pos["flat_by"]: why, px = "flat time", c
+                    elif t + 2 * BAR_SECONDS[bars.bar] > pos["flat_by"]: why, px = "flat time", c
                     pos["last"], pos["last_t"], pos["last_t_done"] = c, t, t
                     if why:
                         events.append(self._close(bot, px, why, t)); break

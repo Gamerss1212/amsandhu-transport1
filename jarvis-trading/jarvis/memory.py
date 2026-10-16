@@ -110,7 +110,8 @@ class Store:
         return self.q("SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,))
 
     def correct_memory(self, mid: str, text: str) -> bool:
-        return bool(self.x("UPDATE memories SET text=?, updated_at=?, corrected=1 WHERE id=?", (text[:500], time.time(), mid)) is not None)
+        with self._lock, self.conn() as c:
+            return c.execute("UPDATE memories SET text=?, updated_at=?, corrected=1 WHERE id=?", (text[:500], time.time(), mid)).rowcount == 1
 
     def forget(self, mid: str):
         self.x("DELETE FROM memories WHERE id=?", (mid,))

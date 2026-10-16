@@ -60,7 +60,7 @@ def validate(schema: dict, args) -> str | None:
         if t == "string":
             if not isinstance(v, str): return f"{k} must be a string"
             if len(v) > p.get("maxLength", 500): return f"{k} too long"
-            if "pattern" in p and not re.match(p["pattern"], v): return f"{k} has a bad format"
+            if "pattern" in p and not re.fullmatch(p["pattern"], v): return f"{k} has a bad format"
         elif t == "integer":
             if not isinstance(v, int) or isinstance(v, bool): return f"{k} must be an integer"
             if v < p.get("minimum", -10 ** 12) or v > p.get("maximum", 10 ** 12): return f"{k} out of range"

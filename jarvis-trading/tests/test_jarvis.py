@@ -11,7 +11,6 @@ Rules these tests follow:
   - All state goes to temporary folders. Nothing is written to the project's state/ folder.
   - Twilio is never contacted: outbound calls use an injected sender, and env vars are faked per test.
   - Source files are never modified. Tests that expose a real source bug are kept, marked
-    @unittest.expectedFailure, and carry a 'SOURCE BUG:' comment.
 """
 from __future__ import annotations
 import base64, hashlib, hmac, json, os, re, shutil, sys, tempfile, threading, time, unittest, warnings
@@ -661,14 +660,12 @@ class TestSpeakable(unittest.TestCase):
         for x in (64000.0, 1e6, 0.0005, 3e-5):
             self.assertNotIn("e", pt(x).lower(), x)
 
-    @unittest.expectedFailure
     def test_markdown_link_keeps_its_text(self):
         # SOURCE BUG: jarvis/core.py speakable() strips r"https?://\S+" BEFORE the markdown-link rule
         # r"\[([^\]]+)\]\([^)]+\)", so the link rule never matches a web link: "[the docs](https://x.org/d)"
         # becomes "[the docs](" and the brackets are read aloud.
         self.assertEqual(speakable("see [the docs](https://x.org/d)"), "see the docs")
 
-    @unittest.expectedFailure
     def test_negative_dollars_keep_their_sign(self):
         # SOURCE BUG: jarvis/core.py speakable() runs the generic r"\$(-?...)" substitution BEFORE the
         # r"-\$..." -> "minus ... dollars" rule, so the "minus" rule is dead code; then the bullet stripper
@@ -774,7 +771,6 @@ class TestCoreOffline(unittest.TestCase):
         self.assertEqual(out["route"], "offline")
         self.assertTrue(out["reply"].startswith("- WAIT"))
 
-    @unittest.expectedFailure
     def test_offline_anonymous_private_question_does_not_crash(self):
         # SOURCE BUG: jarvis/core.py _offline() assumes get_portfolio / get_fleet_summary / get_risk_status /
         # search_strategies succeed (p = r["data"]; p["equity"]). For an anonymous session the gateway answers
@@ -999,7 +995,6 @@ class TestAlertValidation(unittest.TestCase):
                            "channels": ["desktop", "phone"]})
         self.assertEqual(describe(s), "Remind by desktop and phone at 08:30 every day (America/Edmonton): Stretch")
 
-    @unittest.expectedFailure
     def test_rejects_non_finite_threshold(self):
         # SOURCE BUG: jarvis/alerts.py validate() accepts threshold "NaN" / "Infinity" (Decimal parses them).
         # A NaN rule can never fire: every evaluation raises InvalidOperation on the ordering comparison and is
@@ -1073,7 +1068,6 @@ class TestMetricAlerts(AlertBase):
         self.at(64000, self.T0 + 60)
         self.assertEqual(self.at(65100, self.T0 + 120), [])          # within default 600 s cooldown
 
-    @unittest.expectedFailure
     def test_second_crossing_after_cooldown_fires_again(self):
         # SOURCE BUG: jarvis/alerts.py _check() builds the occurrence key as f"{local.date()}:{st.get('n', 0) + 1}"
         # but never increments st["n"], so every crossing on the same local day gets the SAME outbox key
@@ -1597,7 +1591,6 @@ class TestStore(unittest.TestCase):
         self.assertEqual(m["text"], "likes tea")
         self.assertEqual(m["corrected"], 1)
 
-    @unittest.expectedFailure
     def test_correct_unknown_memory_returns_false(self):
         # SOURCE BUG: jarvis/memory.py correct_memory() returns `self.x(...) is not None`, but x() returns
         # cursor.lastrowid, which sqlite3 sets to an int (0) after an UPDATE as well, so it is ALWAYS True -

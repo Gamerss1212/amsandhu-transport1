@@ -158,7 +158,9 @@ def run(bars: Bars, strategy_id: str, settings=None, market: str | None = None, 
             if rules and market == "stock":
                 et = datetime.fromtimestamp(t_close, ET)
                 last_bar = j + 1 >= n or ctx.sess[j + 1] != ctx.sess[j]
-                if last_bar or (et.hour, et.minute) >= (15, 55): close(j, c, "flat by close"); continue
+                nx = datetime.fromtimestamp(t_close + sec, ET)            # the NEXT bar would end after 3:55 pm ET
+                if last_bar or (et.hour, et.minute) >= (15, 55) or (nx.hour, nx.minute) > (15, 55):
+                    close(j, c, "flat by close"); continue
             elif rules and (t_close - bars.t[pos["i"]]) >= flat_hours * 3600:
                 close(j, c, f"flat after {flat_hours}h"); continue
             if max_bars and held >= max_bars: exit_next = "time"
