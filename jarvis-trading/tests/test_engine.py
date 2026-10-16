@@ -7,12 +7,13 @@ Run from the project folder:
 Rules these tests follow:
   - NO network. Bars come from demo_bars() (simulated, labelled DEMO), DataService(mode='demo') or are built
     by hand. A module-level guard makes any accidental HTTP call raise.
-  - All state goes to temporary folders. Nothing is written to the project's state/ folder.
+  - All state goes to temporary folders. Nothing is written to the project's state/ folder, and the library
+    snapshot (data/library.json) is redirected to a temp copy so a rebuild from the xlsx can never touch data/.
   - Source files are never modified. Tests that expose a real source bug are kept, marked
     @unittest.expectedFailure, and carry a 'SOURCE BUG:' comment.
 """
 from __future__ import annotations
-import csv, json, os, random, shutil, sys, tempfile, unittest
+import csv, json, os, random, shutil, sys, tempfile, unittest, warnings
 from datetime import date, datetime, timedelta, timezone
 from unittest import mock
 
@@ -41,8 +42,9 @@ NOW = datetime(2026, 10, 14, 20, 0, tzinfo=UTC).timestamp()
 VERDICTS = {"REJECT", "RESEARCH FURTHER", "PAPER TEST"}
 
 
-# ---------------------------------------------------------------- network guard
+# ---------------------------------------------------------------- network guard + temp library snapshot
 _PATCHES: list = []
+_TMP_DIRS: list = []
 
 
 def _no_network(*a, **k):
@@ -54,11 +56,27 @@ def setUpModule():
         p = mock.patch(target, _no_network)
         p.start()
         _PATCHES.append(p)
+    # library.load() rewrites data/library.json when the xlsx files look newer (a fresh git clone can do that).
+    # Point it at a temp copy (same mtime, so the load behaves exactly as it would on the real file).
+    lib_dir = tempfile.mkdtemp(prefix="jarvis_lib_")
+    _TMP_DIRS.append(lib_dir)
+    snap = os.path.join(lib_dir, "library.json")
+    shutil.copy2(library.SNAPSHOT, snap)
+    p = mock.patch.object(library, "SNAPSHOT", snap)
+    p.start()
+    _PATCHES.append(p)
+    library._CACHE.clear()
+    # engine/validation.py, fleet.py, paper_broker.py and data_feed.py leave json files for the garbage collector
+    # to close (json.load(open(...))). Harmless in CPython, but the ResourceWarnings drown the test output.
+    warnings.filterwarnings("ignore", category=ResourceWarning)
 
 
 def tearDownModule():
     while _PATCHES:
         _PATCHES.pop().stop()
+    library._CACHE.clear()
+    while _TMP_DIRS:
+        shutil.rmtree(_TMP_DIRS.pop(), True)
 
 
 # ---------------------------------------------------------------- helpers
@@ -106,6 +124,25 @@ def tmpdir(testcase: unittest.TestCase) -> str:
     d = tempfile.mkdtemp(prefix="jarvis_test_")
     testcase.addCleanup(shutil.rmtree, d, True)
     return d
+
+
+class _FixedDemo(DataService):
+    """Demo data service pinned to NOW, so validation results do not drift with the wall clock."""
+    def _fetch(self, symbol, bar, n):
+        return demo_bars(symbol, bar, n, now=NOW)
+
+
+def record_backtests(store: list):
+    """Wrap backtest.run: keep the real result, and log what each call actually ran with."""
+    real = bt.run
+
+    def rec(bars, strategy_id, *a, **k):
+        r = real(bars, strategy_id, *a, **k)
+        store.append({"kind": "random entries" if k.get("signals") is not None else "strategy",
+                      "strategy": r["strategy"], "symbol": r["symbol"], "market": r["market"],
+                      "stop_atr_used": r["stop_atr_used"], "params": dict(r["params"])})
+        return r
+    return mock.patch.object(bt, "run", rec)
 
 
 def all_strategy_ids() -> list:
@@ -744,6 +781,40 @@ class TestBacktestStockSession(unittest.TestCase):
         r = self.run_sig(b, [20])
         self.assertEqual(r["trades"], []); self.assertEqual(r["skipped"].get("early close day"), 1)
 
+    # ---- 15-minute bars (the bar size of the stock intraday roles)
+    def two_days_15m(self):
+        times = session_times(date(2026, 10, 14), "15m") + session_times(date(2026, 10, 15), "15m")
+        return make_bars_at("AAPL", "15m", times, [(100.0, 100.5, 99.5, 100.0)] * len(times))
+
+    def test_15m_layout(self):
+        b = self.two_days_15m()
+        self.assertEqual(len(b), 52)
+        self.assertEqual((self.et(b.t[23]).hour, self.et(b.t[23]).minute), (15, 15))
+        self.assertEqual((self.et(b.t[25]).hour, self.et(b.t[25]).minute), (15, 45))
+
+    def test_15m_trade_closes_in_the_same_session(self):
+        b = self.two_days_15m()
+        for sig in (18, 23):                                       # signal 2:00 pm / 3:15 pm ET
+            with self.subTest(signal_bar=sig):
+                r = self.run_sig(b, [sig])
+                self.assertEqual(len(r["trades"]), 1)
+                t = r["trades"][0]
+                self.assertEqual(t["entry_t"], b.t[sig + 1])
+                self.assertEqual(t["reason"], "flat by close")
+                self.assertEqual(self.et(t["entry_t"]).date(), self.et(t["exit_t"]).date())
+        r = self.run_sig(b, [24])                                  # fill at 3:45 pm: too late
+        self.assertEqual(r["trades"], []); self.assertEqual(r["skipped"].get("outside entry hours"), 1)
+
+    # SOURCE BUG: engine/backtest.py step 4 closes a stock trade at the close of the first bar whose CLOSE time is
+    # >= 3:55 pm ET. On 15m (and 1h) bars that bar is the 3:45 pm (3:00/3:30 pm) bar, which closes at 4:00 pm, so the
+    # trade is booked at the 4:00 pm closing price - after the owner's "flat by 3:55 pm ET" deadline.
+    @unittest.expectedFailure
+    def test_15m_exit_bar_closes_by_1555_et(self):
+        b = self.two_days_15m()
+        t = self.run_sig(b, [23])["trades"][0]
+        exit_close = self.et(t["exit_t"] + BAR_SECONDS["15m"])
+        self.assertLessEqual((exit_close.hour, exit_close.minute), (15, 55), f"still holding at {exit_close:%H:%M} ET")
+
 
 # ================================================================ backtest rules on demo bars
 class TestBacktestRulesOnDemoBars(unittest.TestCase):
@@ -784,6 +855,15 @@ class TestBacktestRulesOnDemoBars(unittest.TestCase):
             self.assertTrue((9, 35) <= (e.hour, e.minute) <= (15, 30), f"entry {e}")
             self.assertEqual(e.date(), x.date(), "trade spans two sessions")
             self.assertLessEqual((x.hour, x.minute), (15, 55), f"still open after 3:55 pm ET: {x}")
+
+    def test_stock_15m_entry_hours_and_same_session(self):
+        b, r = self.every_bar("AAPL", "15m")
+        self.check_common(b, r)
+        self.assertGreater(r["skipped"].get("outside entry hours", 0), 0)
+        for t in r["trades"]:
+            e, x = datetime.fromtimestamp(t["entry_t"], ET), datetime.fromtimestamp(t["exit_t"], ET)
+            self.assertTrue((9, 35) <= (e.hour, e.minute) <= (15, 30), f"entry {e}")
+            self.assertEqual(e.date(), x.date(), "trade spans two sessions")
 
     def test_stock_1h_entries_until_1430(self):
         b, r = self.every_bar("AAPL", "1h")
@@ -920,6 +1000,89 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(validation.role_test("no such role", DataService(d, "demo"), d), {"ok": False, "error": "unknown role"})
 
 
+class TestValidationComparesLikeWithLike(unittest.TestCase):
+    """The placebo and the PBO variants are only fair if they use the same market rules, exits and Settings as the
+    real test. Every backtest validation runs is recorded and compared (volatility gate fixed to NORMAL for speed)."""
+    MEME_ROLE = "Meme coins: trend sleeve"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix="jarvis_val_")
+        gate = mock.patch.object(volatility, "gate", lambda b: {"states": ["NORMAL"] * len(b)})
+        cls.role_calls = []
+        with record_backtests(cls.role_calls), gate:
+            cls.role = validation.role_test(cls.MEME_ROLE, _FixedDemo(cls.dir, "demo"), cls.dir, max_symbols=1)
+        cls.report_calls = []
+        cls.sid = "donchian_trend.adx.trail"
+        bars = demo_bars("AAPL", "1h", 1500, now=NOW)
+        with record_backtests(cls.report_calls):
+            cls.report = validation.full_report(bars, cls.sid, cls.dir, settings=library.settings_for(cls.sid),
+                                                draws=5, vol_gate=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, True)
+
+    def strategy_runs(self):
+        return [c for c in self.role_calls if c["kind"] == "strategy" and c["strategy"] == self.role["chosen"]]
+
+    def placebo_runs(self):
+        return [c for c in self.role_calls if c["kind"] == "random entries"]
+
+    def test_meme_role_test_uses_meme_rules(self):
+        r = self.role
+        self.assertTrue(r["ok"]); self.assertIn(r["gate"]["verdict"], VERDICTS)
+        self.assertEqual(len(r["symbols"]), 1)
+        self.assertTrue(library.is_meme(next(b for b in library.bots() if b["symbol"] == r["symbols"][0])))
+        if r["test_stats"]["trades"] < 30:
+            self.assertNotEqual(r["gate"]["verdict"], "PAPER TEST")
+        runs = self.strategy_runs()
+        self.assertEqual(len(runs), 2)                                                     # train + test
+        for c in runs:
+            self.assertEqual((c["market"], c["stop_atr_used"]), ("meme", 4.0))               # meme: 4 ATR minimum stop
+        self.assertGreater(r["test_stats"]["trades"], 0)
+        self.assertTrue(self.placebo_runs(), "precondition: the pooled placebo must have run")
+        self.assertTrue(0 <= r["placebo_pct"] <= 100)
+
+    # SOURCE BUG: engine/validation.py _pooled_placebo calls bt.run(bars, sid, signals=...) with no `settings` and no
+    # `market`, so for meme bots the random entries use crypto rules (3 ATR stop, full size) and default params while
+    # the real test used meme rules (4 ATR stop) and the Settings cell. The placebo percentile then compares unlike
+    # trades (on demo DOGE the random-entry mean R drops from -0.16R to -0.20R), which makes the strategy look better
+    # than random and loosens the gate.
+    @unittest.expectedFailure
+    def test_role_placebo_uses_same_market_and_settings_as_the_test(self):
+        real = self.strategy_runs()[0]
+        plc = self.placebo_runs()
+        self.assertTrue(plc)
+        for c in plc:
+            self.assertEqual((c["market"], c["stop_atr_used"], c["params"]),
+                             (real["market"], real["stop_atr_used"], real["params"]))
+
+    def test_full_report_pbo_variants(self):
+        fr = self.report
+        self.assertGreaterEqual(len(fr["pbo_variants"]), 2)
+        self.assertTrue(all(v.startswith("donchian_trend.") for v in fr["pbo_variants"]))
+        self.assertTrue(fr["pbo"] is None or 0 <= fr["pbo"] <= 1)
+        self.assertIn(fr["gate"]["verdict"], VERDICTS)
+        # the strategy itself (full run, test run, placebo, every-bar benchmark) runs with its Settings cell
+        want = spec(self.sid, library.settings_for(self.sid))["params"]
+        main = self.report_calls[:2] + [c for c in self.report_calls if c["kind"] == "random entries"]
+        self.assertGreaterEqual(len(main), 3)
+        for c in main:
+            self.assertEqual((c["strategy"], c["params"]), (self.sid, want))
+
+    # SOURCE BUG: engine/validation.py full_report runs the sibling variants for PBO as bt.run(bars, v, ...) without
+    # their Settings cells, so e.g. every donchian_trend.*.trail variant runs with stop_atr=2.0 and no trail_atr
+    # instead of the sheet's entry=55, exit=20, trail_atr=3.0 (on stocks that is a 2 ATR instead of a 3 ATR stop).
+    # The PBO is then measured on variants that are not the ones in the library.
+    @unittest.expectedFailure
+    def test_full_report_pbo_variants_run_with_their_settings(self):
+        self.assertTrue(self.report_calls)
+        wrong = [(c["strategy"], c["params"]) for c in self.report_calls
+                 if c["params"] != spec(c["strategy"], library.settings_for(c["strategy"]))["params"]]
+        self.assertEqual(wrong, [], "variants run with params that are not their Settings cell")
+
+
 # ================================================================ paper broker
 class TestPaperBroker(unittest.TestCase):
     T0 = datetime(2026, 10, 11, 8, 0, tzinfo=MT).timestamp()
@@ -977,6 +1140,50 @@ class TestPaperBroker(unittest.TestCase):
                 self.assertTrue(any("collar" in e["event"] for e in ev))
                 self.assertEqual(book.s["positions"], {}); self.assertEqual(book.s["pending"], {})
         self.assertEqual(COLLAR_PCT, 2.0)
+
+    def test_collar_allows_small_move(self):
+        rows = [(100.0, 101.0, 99.0, 100.0)] * 25; rows[21] = (101.5, 102.0, 101.0, 101.5)   # 1.5% < 2%
+        book, b = Book(self.dir, "paper"), self.bars(rows)
+        self.place(book, b)
+        book.on_bars("A001", b)
+        self.assertEqual(book.s["positions"]["A001"]["entry"], 101.5)
+
+    # SOURCE BUG: engine/paper_broker.py on_bars uses `last = bars.c[k - 1] if k > 0 else fill`. When the bars handed in
+    # start AT the fill bar (the signal bar has scrolled out of the window, e.g. after the app was off for 400+ bars),
+    # the collar compares the fill with itself and lets ANY gap through (here +10%). It should fail closed.
+    @unittest.expectedFailure
+    def test_collar_fails_closed_without_a_reference_close(self):
+        rows = [(100.0, 101.0, 99.0, 100.0)] * 21 + [(110.0, 110.5, 109.5, 110.0)] * 4       # +10% gap at bar 21
+        book, b = Book(self.dir, "paper"), self.bars(rows)
+        self.place(book, b)
+        ev = book.on_bars("A001", b.slice(21))                 # window starts at the fill bar
+        self.assertFalse([e for e in ev if "BUY" in e["event"]], ev)
+        self.assertEqual(book.s["positions"], {})
+
+    def stock_15m_flat(self):
+        times = session_times(date(2026, 10, 14), "15m")
+        b = make_bars_at("AAPL", "15m", times, [(100.0, 100.5, 99.5, 100.0)] * len(times))
+        flat_by = datetime(2026, 10, 14, 15, 55, tzinfo=ET).timestamp()          # what policy.decide hands out
+        book = Book(self.dir, "paper")
+        sig = times.index(int(datetime(2026, 10, 14, 15, 0, tzinfo=ET).timestamp()))
+        self.assertTrue(self.place(book, b, bot="A050", sig=sig, market="stock", stop_atr=2.0, atr=1.0, target_r=None,
+                                   flat_by=flat_by, cost_pct=0.06)["ok"])
+        book.on_bars("A050", b)
+        return book.s["closed"][-1], flat_by
+
+    def test_stock_position_closed_at_flat_time_same_session(self):
+        c, flat_by = self.stock_15m_flat()
+        self.assertEqual(c["reason"], "flat time")
+        self.assertEqual(datetime.fromtimestamp(c["exit_t"], ET).date(), date(2026, 10, 14))
+        self.assertEqual(c["status"], "PAPER")
+
+    # SOURCE BUG: engine/paper_broker.py closes on the first bar with `t + bar >= flat_by`, i.e. the first bar that ENDS
+    # at or after 3:55 pm ET. On 15m bars that is the 3:45 pm bar (ends 4:00 pm), so the paper position is still open
+    # after the 3:55 pm deadline and is booked at the 4:00 pm close.
+    @unittest.expectedFailure
+    def test_stock_15m_position_flat_by_1555_et(self):
+        c, flat_by = self.stock_15m_flat()
+        self.assertLessEqual(c["exit_t"] + BAR_SECONDS["15m"], flat_by)
 
     def test_halt_refuses_new_orders(self):
         book, b = Book(self.dir, "paper"), self.bars()
@@ -1197,6 +1404,41 @@ class TestFleetFailClosed(unittest.TestCase):
             if r.get("error"):
                 self.assertEqual(r["decision"], "WAIT")
         self.assertEqual(policy.paused_bots(f.cfg), set())
+
+    def crash_cycle(self, d, n=1):
+        f = fleet_mod.Fleet(DataService(d, "demo"), d)
+        with mock.patch.object(fleet_mod.Fleet, "run_bot", side_effect=ValueError("simulated crash")):
+            out = [f.cycle(refresh_budget=0) for _ in range(n)]
+        return f, out
+
+    def test_crashing_bot_check_means_wait(self):
+        d = tmpdir(self)
+        f, out = self.crash_cycle(d)
+        self.assertTrue(out[0]["ok"])
+        rows = read_json(os.path.join(d, "fleet.json"))
+        self.assertEqual(len(rows), 74)
+        for r in rows:
+            with self.subTest(bot=r["bot_id"]):
+                self.assertEqual(r["decision"], "WAIT"); self.assertEqual(r["reason"], "Check failed; no trade")
+                self.assertIn("simulated crash", r["error"])
+                self.assertTrue(r["would_pause"].startswith("PAUSE"))          # shown, not applied: cannot trade
+        self.assertEqual(policy.paused_bots(f.cfg), set())
+        self.assertFalse(policy.halt_active(f.cfg))
+        self.assertEqual(f.totals["errors"], 74); self.assertEqual(f.totals["buy_answers"], 0)
+
+    # SOURCE BUG: engine/fleet.py cycle() builds the row for a bot whose check raised as {**prev, ...} without a new
+    # correlation_id, so the WAIT decision of that cycle has no id on the first cycle (None) and reuses the previous
+    # cycle's id afterwards. The Fleet feed sheet says correlation_id is "Required", one id per decision.
+    @unittest.expectedFailure
+    def test_crashing_bot_row_gets_a_fresh_correlation_id(self):
+        d = tmpdir(self)
+        self.crash_cycle(d)
+        first = {r["bot_id"]: r.get("correlation_id") for r in read_json(os.path.join(d, "fleet.json"))}
+        self.crash_cycle(d)
+        second = {r["bot_id"]: r.get("correlation_id") for r in read_json(os.path.join(d, "fleet.json"))}
+        missing = [b for b, c in list(first.items()) + list(second.items()) if not c]
+        self.assertEqual(missing, [], "rows without a correlation id")
+        self.assertTrue(all(first[b] != second[b] for b in first))
 
     def test_event_blackout(self):
         self.assertTrue(fleet_mod.event_blackout(datetime(2026, 10, 28, 11, 30, tzinfo=MT)))
