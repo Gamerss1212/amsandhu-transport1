@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { makeState,placeOrder,account,cycle,validateLimits,indicators } from '../lib/core.mjs';
+import { backtest,parseCSV,validateBars } from '../lib/backtest.mjs';
+import { council } from '../lib/agents.mjs';
+import { applyQuote,validSignature,twiml,phoneConfigured,canNotify } from '../lib/providers.mjs';
+const buy=(s,changes={})=>placeOrder(s,{symbol:'BTC-USD',side:'buy',notional:500,clientId:crypto.randomUUID(),...changes});
+const bars=(n=100)=>Array.from({length:n},(_,i)=>({time:Date.now()-(n-i)*60000,open:100+i*.1,high:101+i*.1,low:99+i*.1,close:100.2+i*.1,volume:1000}));
+
+test('fill accounting charges fees and spread; closing realizes the correct loss',()=>{
+  const s=makeState(),o=buy(s),p=s.positions[0];assert.equal(s.cash,100000-o.notional-o.fee);assert.equal(p.cost,o.notional+o.fee);
+  const close=placeOrder(s,{symbol:o.symbol,side:'sell',clientId:crypto.randomUUID()});assert.equal(s.positions.length,0);assert.ok(close.realized<0);assert.ok(Math.abs(account(s).pnl-close.realized)<1e-8);
+});
+test('partial close preserves cost basis and quantity',()=>{const s=makeState();buy(s);const p={...s.positions[0]};placeOrder(s,{symbol:p.symbol,side:'sell',qty:p.qty/2,clientId:crypto.randomUUID()});assert.equal(s.positions[0].qty,p.qty/2);assert.equal(s.positions[0].cost,p.cost/2);});
+test('idempotent order replay does not spend twice; mismatched key is rejected',()=>{const s=makeState(),o=buy(s,{clientId:'same-order-1'}),cash=s.cash;const replay=buy(s,{clientId:'same-order-1'});assert.equal(replay.id,o.id);assert.equal(s.cash,cash);assert.throws(()=>buy(s,{notional:501,clientId:'same-order-1'}),/different order/);});
+test('invalid quantities, unknown assets, short sales and live mode fail closed',()=>{const s=makeState();for(const notional of [0,-1,NaN,Infinity,'500',3000])assert.throws(()=>buy(s,{notional}));assert.throws(()=>buy(s,{symbol:'UNKNOWN'}));assert.throws(()=>placeOrder(s,{symbol:'BTC-USD',side:'sell',clientId:'no-short-1'}),/Short/);s.mode='live';assert.throws(()=>buy(s),/paper/);assert.equal(s.cash,100000);});
+test('stale, future and unavailable prices cannot fill',()=>{for(const change of [{asOf:Date.now()-100000},{asOf:Date.now()+100000},{status:'unavailable'}]){const s=makeState();Object.assign(s.markets[0],change);assert.throws(()=>buy(s));assert.equal(s.positions.length,0);}});
+test('emergency stop blocks entries but permits closing positions',()=>{const s=makeState();buy(s);s.halted=true;assert.throws(()=>buy(s),/Emergency/);placeOrder(s,{symbol:'BTC-USD',side:'sell',clientId:'close-stopped'});assert.equal(s.positions.length,0);});
+test('loss, concentration, total exposure and meme budgets reject entries',()=>{
+  let s=makeState();s.dayStart=110000;assert.throws(()=>buy(s),/Daily loss/);
+  s=makeState();s.limits.maxPositionPct=.1;assert.throws(()=>buy(s),/concentration/);
+  s=makeState();s.limits.maxExposurePct=.1;assert.throws(()=>buy(s),/exposure/);
+  s=makeState();s.limits.maxMemePct=.2;assert.throws(()=>buy(s,{symbol:'DOGE-USD'}),/meme/);
+  s=makeState();s.limits.riskPerTradePct=.001;assert.throws(()=>buy(s),/risk budget/);
+});
+test('holdings with stale quotes block additional entries',()=>{const s=makeState();buy(s);s.markets[0].asOf=Date.now()-100000;assert.throws(()=>buy(s,{symbol:'ETH-USD'}),/stale/);});
+test('stops can exit at worse prices after gaps',()=>{const s=makeState();buy(s);s.feed='connected';const stop=s.positions[0].stop,m=s.markets[0];m.price=stop*.8;m.bid=m.price*.999;m.ask=m.price*1.001;cycle(s);assert.equal(s.positions.length,0);assert.ok(s.orders[0].price<stop);assert.equal(s.orders[0].actor,'Stop loss');});
+test('stale stop prices do not fabricate fills',()=>{const s=makeState();buy(s);s.feed='connected';s.markets[0].price=s.positions[0].stop*.9;s.markets[0].asOf=Date.now()-200000;cycle(s);assert.equal(s.positions.length,1);});
+test('limit validation rejects unsafe or omitted fields',()=>{const s=makeState();assert.deepEqual(validateLimits(s.limits),s.limits);assert.throws(()=>validateLimits({...s.limits,maxMemePct:100}));assert.throws(()=>validateLimits({}));});
+test('council exposes exactly 25 roles and does not fabricate unavailable evidence',()=>{const c=council(makeState());assert.equal(c.length,25);for(const id of ['news','sentiment','onchain','calendar'])assert.equal(c.find(r=>r.id===id).status,'blocked');});
+test('indicators wait for sufficient history and return neutral RSI for flat prices',()=>{assert.equal(indicators([]).ready,false);const b=bars().map(b=>({...b,close:100}));assert.equal(indicators(b).rsi,50);});
+test('OHLCV quality rejects duplicates, negative volume, invalid prices and missing columns',()=>{let b=bars();b[1].time=b[0].time;assert.throws(()=>validateBars(b),/duplicate/);b=bars();b[2].high=1;assert.throws(()=>validateBars(b),/range/);b=bars();b[0].volume=-1;assert.throws(()=>validateBars(b));assert.throws(()=>parseCSV('time,close\n123,0'),/header/);assert.throws(()=>parseCSV('time,open,high,low,close,volume\n2026-01-01,1,2,1,1,2'),/60/);});
+test('backtest decisions cannot observe current or future bars',()=>{const b=bars();let calls=0;backtest({bars:b},history=>{const expected=Math.max(26,Math.floor(b.length*.7))+calls;assert.equal(history.at(-1).time,b[expected-1].time);calls++;return 'WAIT';});assert.equal(calls,30);});
+test('backtest fills next open and resolves ambiguous stops pessimistically',()=>{const b=bars();b[70]={...b[70],open:100,high:110,low:80,close:100};const r=backtest({bars:b,feeBps:0,slippageBps:0},history=>history.length===70?'BUY':'WAIT');assert.equal(r.trades[0].entry,100);assert.equal(r.trades[0].exit,98);assert.ok(r.trades[0].pnl<0);});
+test('backtest applies roundtrip fees and slippage',()=>{const b=bars().map(b=>({...b,open:100,high:100,low:100,close:100}));const r=backtest({bars:b},h=>h.length===70?'BUY':'WAIT');assert.ok(r.returnPct<0);assert.equal(r.tradeCount,1);assert.ok(r.maxDrawdown>0);});
+test('strict CSV import accepts UTC timestamps and rejects empty and ambiguous cells',()=>{const b=bars(),csv='time,open,high,low,close,volume\n'+b.map(b=>[new Date(b.time).toISOString(),b.open,b.high,b.low,b.close,b.volume].join(',')).join('\n');assert.equal(parseCSV(csv).length,100);assert.throws(()=>parseCSV(csv.replace(',100,',',,')));assert.throws(()=>parseCSV(csv.replace(/Z,/g,',')),/finite/);});
+test('provider quote validation rejects malformed and out-of-order responses',()=>{const m=makeState().markets[0];assert.throws(()=>applyQuote(m,{price:100,bid:102,ask:101,asOf:Date.now()}));applyQuote(m,{price:100,bid:99,ask:101,asOf:Date.now(),source:'test'});assert.throws(()=>applyQuote(m,{price:100,bid:99,ask:101,asOf:Date.now()-1000}),/Out-of-order/);});
+test('Twilio signature matches published test vector and rejects tampering',()=>{const params=new URLSearchParams({CallSid:'CA1234567890ABCDE',Caller:'+14158675310',Digits:'1234',From:'+14158675310',To:'+18005551212'});const url='https://example.com/myapp.php?foo=1&bar=2';assert.equal(validSignature(url,params,'L/OH5YylLD5NRKLltdqwSvS0BnU=','12345'),true);params.set('Digits','9999');assert.equal(validSignature(url,params,'L/OH5YylLD5NRKLltdqwSvS0BnU=','12345'),false);});
+test('voice XML escapes untrusted content and configuration fails closed',()=>{assert.match(twiml('<script>&"'),/&lt;script&gt;&amp;&quot;/);assert.equal(phoneConfigured({}),false);});
+test('automatic calls respect timezone quiet hours, daily limits and rollover',()=>{const n={quietStart:22,quietEnd:8,timeZone:'America/Toronto',dailyLimit:3,attempts:3,day:'2026-10-15'};
+  assert.equal(canNotify(n,Date.parse('2026-10-16T03:00:00Z')).allowed,false);
+  assert.equal(canNotify(n,Date.parse('2026-10-15T16:00:00Z')).allowed,false);
+  assert.equal(canNotify(n,Date.parse('2026-10-16T16:00:00Z')).allowed,true);
+});

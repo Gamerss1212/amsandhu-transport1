@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS · Trading Command</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <nav class="rail" aria-label="Main navigation">
+    <a class="brand" href="/" aria-label="Jarvis home">J<span>·</span></a>
+    <button data-page="command" class="nav active" title="Command center"><span>◈</span><small>Command</small></button>
+    <button data-page="council" class="nav" title="Agent council"><span>⬡</span><small>Council</small></button>
+    <button data-page="lab" class="nav" title="Strategy lab"><span>⌁</span><small>Lab</small></button>
+    <button data-page="tokens" class="nav" title="Token research"><span>◎</span><small>Tokens</small></button>
+    <button data-page="risk" class="nav" title="Risk controls"><span>◇</span><small>Risk</small></button>
+    <button data-page="journal" class="nav" title="Trading journal"><span>≡</span><small>Journal</small></button>
+    <button data-page="connect" class="nav" title="Connections"><span>⌘</span><small>Connect</small></button>
+    <div class="rail-bottom"><span class="status-dot"></span><small>LOCAL</small></div>
+  </nav>
+  <main>
+    <header class="topbar"><div class="wordmark">J A R V I S <span>/ TRADING OS</span></div><div class="top-actions"><span id="connection" class="connection">Connecting…</span><span class="badge gold">PAPER ACCOUNT</span><button id="halt" class="danger">■ Stop trading</button></div></header>
+    <div class="page-heading"><div><p class="eyebrow">YOUR PERSONAL MARKET INTELLIGENCE</p><h1 id="page-title">Command center<span class="cyan">.</span></h1><p id="page-subtitle">A clear view of your markets. A deliberate approach to every trade.</p></div><div class="time-box"><strong id="clock">--:--:--</strong><span>YOUR LOCAL TIME</span></div></div>
+    <div id="notice" class="notice">Loading your local paper account…</div>
+    <div class="workspace"><section id="view" aria-label="Trading workspace"></section>
+      <aside class="assistant panel">
+        <div class="panel-heading"><div><span class="eyebrow">INTELLIGENCE INTERFACE</span><h2>Meet Jarvis</h2></div><span class="badge cyan-badge" id="assistant-mode">COMMANDS</span></div>
+        <div class="orb-stage" aria-hidden="true"><div class="orb"><div class="orb-ring ring-one"></div><div class="orb-ring ring-two"></div><div class="orb-ring ring-three"></div><div class="orb-core"><svg viewBox="0 0 100 100"><path d="M50 18 78 34v32L50 82 22 66V34Z"/><path d="M50 30 68 40v20L50 70 32 60V40Z"/><path d="M50 18v12M78 34 68 40M78 66 68 60M50 82V70M22 66 32 60M22 34 32 40"/></svg></div></div><div class="orb-label"><span class="status-dot"></span><span id="voice-status">READY WHEN YOU ARE</span></div></div>
+        <div class="voice-controls"><button id="mic" class="primary">◉ Talk to Jarvis</button><button id="call" class="secondary" title="Call your configured owner phone number">↗ Call me</button></div>
+        <p class="microcopy" id="voice-support">Voice input uses your browser's speech service. Typed commands always work.</p>
+        <div class="assistant-settings"><label><input type="checkbox" id="speak"> Speak replies</label><label><input type="checkbox" id="use-ai"> Local AI</label></div>
+        <div id="messages" class="messages" role="log" aria-live="polite"><div class="message jarvis"><small>JARVIS</small><p>Welcome to your command center. Ask for a briefing, scan the watchlist, or tell me to stop trading.</p></div></div>
+        <div class="prompt-chips"><button data-prompt="Brief me">Brief me ↗</button><button data-prompt="Scan markets">Scan markets ↗</button><button data-prompt="Risk limits">Risk limits ↗</button></div>
+        <form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">Message Jarvis</label><input id="chat-input" placeholder="Ask Jarvis anything…" maxlength="2000" autocomplete="off" required><button type="submit" aria-label="Send message">↑</button></form>
+        <div class="assistant-footer"><span class="status-dot"></span> PAPER ONLY <span>·</span> HUMAN IN CONTROL</div>
+      </aside>
+    </div>
+    <footer class="footer"><span>JARVIS / PERSONAL RESEARCH TERMINAL</span><span>Canada · USD simulated ledger · v0.1</span></footer>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <dialog id="call-dialog"><h2>Call your phone?</h2><p>This places a real Twilio call to the owner number configured in your local .env file. Provider charges may apply. Enter your PIN on the call to hear account details.</p><div class="button-row"><button id="cancel-call" class="secondary">Cancel</button><button id="confirm-call" class="primary">Call my configured number</button></div></dialog>
+  <script type="module" src="/app.js"></script>
+</body></html>

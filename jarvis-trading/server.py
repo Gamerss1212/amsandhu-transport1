@@ -129,12 +129,12 @@ class H(BaseHTTPRequestHandler):
             html = open(os.path.join(WEB, "index.html"), encoding="utf-8").read().replace("{{JARVIS_TOKEN}}", TOKEN)
             return self._send(200, html.encode(), TYPES[".html"], {"Content-Security-Policy":
                 "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'"})
+                "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'", "X-Frame-Options": "DENY"})
         if p.startswith("/static/"):
-            name = os.path.normpath(p[len("/static/"):]).replace("\\", "/")
-            f = os.path.join(WEB, name)
-            if ".." in name or not os.path.isfile(f): return self._send(404, {"error": "not found"})
-            return self._send(200, open(f, "rb").read(), TYPES.get(os.path.splitext(f)[1], "application/octet-stream"))
+            # Only the three portal files, by exact name: no path joining, so no traversal (incl. absolute paths).
+            name = p[len("/static/"):]
+            if not self._host_ok() or name not in ("app.js", "app.css"): return self._send(404, {"error": "not found"})
+            return self._send(200, open(os.path.join(WEB, name), "rb").read(), TYPES[os.path.splitext(name)[1]])
         if p.startswith("/sites/"):
             # Websites Jarvis built. Served in a CSP sandbox (opaque origin): the page cannot read the portal's token or call the API.
             if not self._host_ok(): return self._send(403, {"error": "wrong host"})
